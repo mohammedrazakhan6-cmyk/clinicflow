@@ -51,14 +51,13 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.colors.neutral[50],
+    backgroundColor: theme.colors.neutral[100],
     borderRadius: theme.radius.md,
-    height: 48,
+    height: 56,
     paddingHorizontal: theme.spacing[4],
-    borderWidth: 1,
-    borderColor: 'transparent',
   },
   inputError: {
+    borderWidth: 1,
     borderColor: theme.colors.error[500],
   },
   input: {

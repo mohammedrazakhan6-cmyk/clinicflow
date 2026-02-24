@@ -5,7 +5,8 @@ import { Card } from '../../components/Card';
 import { SkeletonLoader } from '../../components/SkeletonLoader';
 import { theme } from '../../styles/theme';
 import { supabase } from '../../api/supabase';
-import { Calendar, Clock, CheckCircle, XCircle, ArrowLeft } from 'lucide-react-native';
+import { Calendar, Clock, ArrowLeft } from 'lucide-react-native';
+import { StatusPill } from '../../components/StatusPill';
 
 export default function VisitHistory({ navigation }) {
   const [history, setHistory] = useState([]);
@@ -33,25 +34,10 @@ export default function VisitHistory({ navigation }) {
       setLoading(false);
     }
   };
-
-  const getStatusIcon = (status) => {
-    switch(status) {
-      case 'completed': return <CheckCircle color={theme.colors.success[500]} size={20} />;
-      case 'cancelled': 
-      case 'no_show': return <XCircle color={theme.colors.error[500]} size={20} />;
-      default: return null;
-    }
-  };
-
   const renderItem = ({ item }) => (
     <Card style={styles.card}>
-      <View style={styles.header}>
-        <View style={styles.statusRow}>
-          {getStatusIcon(item.status)}
-          <Typography variant="caption" style={{marginLeft: 8, textTransform: 'capitalize'}}>
-            {item.status.replace('_', ' ')}
-          </Typography>
-        </View>
+      <View style={[styles.header, { alignItems: 'flex-start' }]}>
+        <StatusPill status={item.status} />
       </View>
       
       <View style={styles.details}>

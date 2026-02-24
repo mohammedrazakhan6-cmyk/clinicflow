@@ -33,19 +33,45 @@ const dummyProfile = {
   gender: 'Male'
 };
 
-const dummyAppointments = [
-  { id: 1, patient_id: dummyUser.id, date: new Date().toISOString().split('T')[0], time: '10:00', status: 'waiting', queue_order: 1, notes: null, users: { name: 'Arjun Kumar', phone: '+91 98765 43210' } },
-  { id: 2, patient_id: 'other-1', date: new Date().toISOString().split('T')[0], time: '10:30', status: 'waiting', queue_order: 2, notes: null, users: { name: 'Priya Sharma', phone: '+91 87654 32109' } },
-  { id: 3, patient_id: 'other-2', date: new Date().toISOString().split('T')[0], time: '11:00', status: 'completed', queue_order: 3, notes: 'All good', users: { name: 'Rahul Patel', phone: '+91 76543 21098' } }
+let dummyUsers = [
+  { id: dummyUser.id, name: 'Arjun Kumar', phone: '+91 98765 43210', age: 30, gender: 'Male', role: 'patient' },
+  { id: 'other-1', name: 'Priya Sharma', phone: '+91 87654 32109' },
+  { id: 'other-2', name: 'Rahul Patel', phone: '+91 76543 21098' },
+  { id: 'other-3', name: 'Sneha Gupta', phone: '+91 65432 10987' }
 ];
 
-const dummySettings = {
-  start_time: '09:00:00',
-  end_time: '17:00:00',
-  slot_duration: 30,
-  max_patients: 20,
-  is_available: true
-};
+let dummyDoctors = [
+  { id: 'doc-1', name: 'Dr. Anil Kumar', is_available: true },
+  { id: 'doc-2', name: 'Dr. Sanjay Patel', is_available: true }
+];
+
+let dummyAppointments = [
+  { id: 1, patient_id: dummyUser.id, doctor_id: 'doc-1', date: new Date().toISOString().split('T')[0], time: '10:00', status: 'waiting', queue_order: 1, notes: null, users: { name: 'Arjun Kumar', phone: '+91 98765 43210' }, doctors: { name: 'Dr. Anil Kumar' } },
+  { id: 2, patient_id: 'other-1', doctor_id: 'doc-1', date: new Date().toISOString().split('T')[0], time: '10:30', status: 'waiting', queue_order: 2, notes: null, users: { name: 'Priya Sharma', phone: '+91 87654 32109' }, doctors: { name: 'Dr. Anil Kumar' } },
+  { id: 3, patient_id: 'other-2', doctor_id: 'doc-2', date: new Date().toISOString().split('T')[0], time: '11:00', status: 'completed', queue_order: 1, notes: 'All good', users: { name: 'Rahul Patel', phone: '+91 76543 21098' }, doctors: { name: 'Dr. Sanjay Patel' } },
+  { id: 4, patient_id: 'other-3', doctor_id: 'doc-2', date: new Date().toISOString().split('T')[0], time: '11:15', status: 'waiting', queue_order: 2, notes: null, users: { name: 'Sneha Gupta', phone: '+91 65432 10987' }, doctors: { name: 'Dr. Sanjay Patel' } }
+];
+
+let dummySettings = [
+  {
+    id: 'set-1',
+    doctor_id: 'doc-1',
+    start_time: '09:00:00',
+    end_time: '17:00:00',
+    slot_duration: 30,
+    max_patients: 20,
+    is_available: true
+  },
+  {
+    id: 'set-2',
+    doctor_id: 'doc-2',
+    start_time: '09:00:00',
+    end_time: '17:00:00',
+    slot_duration: 15,
+    max_patients: 40,
+    is_available: true
+  }
+];
 
 let authListeners = [];
 
@@ -66,9 +92,12 @@ export const supabase = {
       } } } };
     },
     signUp: async (opts) => {
-      const session = { user: dummyUser };
-      notifyListeners('SIGNED_IN', session);
-      return { data: { user: dummyUser, session }, error: null };
+      // In a real app, Admins use the Supabase Admin API to create users without logging themselves in.
+      // Here, we just generate a mock user and return it without triggering a global session change.
+      const newUserId = 'walkin-' + Math.random().toString(36).substring(2, 9);
+      const newUser = { id: newUserId, email: opts.email };
+      const session = { user: newUser };
+      return { data: { user: newUser, session }, error: null };
     },
     signInWithPassword: async (opts) => {
       let role = 'patient';
@@ -86,38 +115,88 @@ export const supabase = {
       return { error: null };
     },
   },
-  from: (table) => ({
-    select: (columns) => ({
-      eq: (col, val) => ({
-        single: async () => {
-          if (table === 'users' && val === dummyUser.id) return { data: dummyProfile, error: null };
-          if (table === 'appointments') return { data: dummyAppointments[0], error: null };
-          return { data: null, error: null };
-        },
-        in: (col2, arr) => ({
-          order: () => ({
-            order: () => ({
-              limit: () => ({ single: async () => ({ data: dummyAppointments[0], error: null }) })
-            })
-          })
-        }),
-        not: () => ({
-          // useful for admin stats
-          then: (cb) => cb({ data: dummyAppointments, error: null })
-        }),
-        then: (cb) => {
-          if (table === 'appointments' && col === 'date') return cb({ data: dummyAppointments, error: null });
-          if (table === 'users') return cb({ data: dummyProfile, error: null });
-          return cb({ data: [], error: null });
+  from: (table) => {
+    let filters = [];
+    const chain = {
+      select: () => chain,
+      eq: (col, val) => { filters.push({ type: 'eq', col, val }); return chain; },
+      in: () => chain,
+      not: () => chain,
+      order: () => chain,
+      limit: () => chain,
+      single: async () => {
+         if (table === 'users') return { data: dummyProfile, error: null };
+         if (table === 'appointments') return { data: dummyAppointments[0], error: null };
+         if (table === 'doctor_settings') return { data: dummySettings[0], error: null };
+         if (table === 'doctors') return { data: dummyDoctors[0], error: null };
+         return { data: null, error: null };
+      },
+      then: (cb) => {
+         if (table === 'users') return cb({ data: dummyProfile, error: null });
+         if (table === 'appointments') {
+           let res = [...dummyAppointments];
+           filters.forEach(f => {
+             if (f.type === 'eq') res = res.filter(a => a[f.col] === f.val);
+           });
+           return cb({ data: res, error: null });
+         }
+         if (table === 'doctor_settings') return cb({ data: dummySettings, error: null });
+         if (table === 'doctors') return cb({ data: dummyDoctors, error: null });
+         return cb({ data: [], error: null });
+      }
+    };
+    return {
+      select: () => chain,
+      insert: async (data) => {
+        if (table === 'users') {
+          data.forEach(d => dummyUsers.push(d));
         }
-      }),
-      limit: () => ({ single: async () => ({ data: table === 'doctor_settings' ? dummySettings : null, error: null }) }),
-      then: (cb) => cb({ data: null, error: null })
-    }),
-    insert: async (data) => ({ data, error: null }),
-    update: () => ({ eq: async () => ({ error: null }) }),
-    upsert: async () => ({ error: null })
-  }),
+        if (table === 'appointments') {
+          data.forEach(item => {
+            const user = dummyUsers.find(u => u.id === item.patient_id);
+            const doc = dummyDoctors.find(d => d.id === item.doctor_id);
+            dummyAppointments.push({
+              id: dummyAppointments.length + 1,
+              ...item,
+              users: user ? { name: user.name, phone: user.phone } : { name: 'Unknown', phone: 'N/A' },
+              doctors: doc ? { name: doc.name } : { name: 'Unknown' }
+            });
+          });
+        }
+        return { data, error: null };
+      },
+      update: (updates) => {
+        return {
+          eq: async (col, val) => {
+            if (table === 'appointments') {
+              dummyAppointments = dummyAppointments.map(a => 
+                a[col] === val ? { ...a, ...updates } : a
+              );
+            }
+            if (table === 'users') {
+              dummyUsers = dummyUsers.map(u => 
+                u[col] === val ? { ...u, ...updates } : u
+              );
+              // Also update dummyProfile if it's the current user
+              if (dummyProfile.id === val) {
+                Object.assign(dummyProfile, updates);
+              }
+            }
+            return { error: null };
+          }
+        };
+      },
+      upsert: async (data) => {
+        if (table === 'doctor_settings') {
+          const idx = dummySettings.findIndex(s => s.doctor_id === data.doctor_id);
+          if (idx >= 0) dummySettings[idx] = { ...dummySettings[idx], ...data };
+          else dummySettings.push(data);
+        }
+        return { error: null };
+      },
+      delete: () => chain,
+    };
+  },
   channel: () => ({
     on: () => ({ subscribe: () => ({}) })
   }),
