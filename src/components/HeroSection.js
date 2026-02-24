@@ -74,7 +74,7 @@ export const HeroSection = ({
                                 fill={theme.colors.accent[500]}
                             />
                             <Typography variant="caption" color="neutral.800" style={styles.statText}>
-                                {patientsServed}+ Patients
+                                {patientsServed} + Patients
                             </Typography>
                         </View>
                     </View>

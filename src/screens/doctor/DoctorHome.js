@@ -101,8 +101,14 @@ export default function DoctorHome({ navigation }) {
       setNextPatient(next || null);
 
       // Fetch Availability
-      const { data: settings } = await supabase.from('doctor_settings').select('is_available').limit(1).single();
-      setAvailability(settings?.is_available ? 'available' : 'unavailable');
+      // const { data: settings } = await supabase.from('doctor_settings').select('is_available').limit(1).single();
+      const { data: settings } = await supabase
+        .from('doctor_settings')
+        .select('status')
+        .eq('doctor_id', user.id)
+        .single();
+
+      setAvailability(settings?.status || 'available');
 
     } catch (e) {
       console.error('Error fetching dashboard data:', e);
@@ -139,17 +145,21 @@ export default function DoctorHome({ navigation }) {
   };
 
   const updateAvailability = async (status) => {
-    setAvailability(status);
     try {
-      const isAvailable = status === 'available';
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
       const { error } = await supabase
         .from('doctor_settings')
-        .update({ is_available: isAvailable })
-        .limit(1); // Assuming single row settings for demo as per prompt
+        .update({ status })
+        .eq('doctor_id', user.id);
 
       if (error) throw error;
+
+      setAvailability(status);
+
     } catch (e) {
-      console.error('Error updating availability:', e);
+      console.log('Availability update error:', e);
     }
   };
 
@@ -213,14 +223,13 @@ export default function DoctorHome({ navigation }) {
           </View>
           <View style={styles.availabilityContainer}>
             <View style={styles.segmentedControl}>
-              {['available', 'break', 'unavailable'].map((status) => (
+              {['available', 'unavailable'].map((status) => (
                 <TouchableOpacity
                   key={status}
                   style={[
                     styles.availabilityPill,
                     availability === status && styles.activePill,
                     availability === status && status === 'available' && { backgroundColor: theme.colors.success[500] },
-                    availability === status && status === 'break' && { backgroundColor: theme.colors.warning[500] },
                     availability === status && status === 'unavailable' && { backgroundColor: theme.colors.error[500] },
                   ]}
                   onPress={() => {

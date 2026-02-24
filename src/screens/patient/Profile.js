@@ -25,7 +25,7 @@ export default function Profile({ navigation }) {
         .select('*')
         .eq('id', user.id)
         .single();
-      
+
       setProfile(data || {});
     } catch (e) {
       console.log('Error fetching profile:', e);
@@ -64,33 +64,33 @@ export default function Profile({ navigation }) {
   if (loading) {
     return (
       <View style={styles.container}>
-        {[1,2,3,4,5].map(i => <SkeletonLoader key={i} width="100%" height={48} style={{marginBottom: 16}} />)}
+        {[1, 2, 3, 4, 5].map(i => <SkeletonLoader key={i} width="100%" height={48} style={{ marginBottom: 16 }} />)}
       </View>
     );
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{padding: theme.spacing[4], paddingTop: 60, paddingBottom: theme.spacing[10]}}>
-      <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing[6]}}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={{marginRight: 16}}>
+    <ScrollView style={styles.container} contentContainerStyle={{ padding: theme.spacing[4], paddingTop: 60, paddingBottom: theme.spacing[10] }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing[6] }}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginRight: 16 }}>
           <ArrowLeft size={24} color={theme.colors.neutral[900]} />
         </TouchableOpacity>
         <Typography variant="h2" color="neutral.900">My Profile</Typography>
       </View>
-      
+
       <Input
         label="Full Name"
         value={profile.name || ''}
-        onChangeText={(txt) => setProfile({...profile, name: txt})}
+        onChangeText={(txt) => setProfile({ ...profile, name: txt })}
       />
       <Input
         label="Phone Number"
         value={profile.phone || ''}
-        onChangeText={(txt) => setProfile({...profile, phone: txt})}
+        onChangeText={(txt) => setProfile({ ...profile, phone: txt })}
         keyboardType="phone-pad"
       />
       <Input
-        label="Email address (Read-only)"
+        label="Email address"
         value={profile.email || ''}
         editable={false}
       />
@@ -98,21 +98,21 @@ export default function Profile({ navigation }) {
         <Input
           label="Age"
           value={profile.age ? String(profile.age) : ''}
-          onChangeText={(txt) => setProfile({...profile, age: txt})}
+          onChangeText={(txt) => setProfile({ ...profile, age: txt })}
           keyboardType="numeric"
-          style={{flex: 1, marginRight: theme.spacing[2]}}
+          style={{ flex: 1, marginRight: theme.spacing[2] }}
         />
         <Input
           label="Gender"
           value={profile.gender || ''}
-          onChangeText={(txt) => setProfile({...profile, gender: txt})}
-          style={{flex: 1, marginLeft: theme.spacing[2]}}
+          onChangeText={(txt) => setProfile({ ...profile, gender: txt })}
+          style={{ flex: 1, marginLeft: theme.spacing[2] }}
         />
       </View>
 
       <Button title="Save Changes" onPress={handleSave} loading={saving} style={styles.saveBtn} />
-      
-      <Button title="Logout" variant="secondary" onPress={handleLogout} textStyle={{color: theme.colors.error[500]}} />
+
+      <Button title="Logout" variant="secondary" onPress={handleLogout} textStyle={{ color: theme.colors.error[500] }} />
 
     </ScrollView>
   );

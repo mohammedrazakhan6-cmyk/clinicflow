@@ -14,7 +14,7 @@ const SLIDES = [
   },
   {
     id: '2',
-    title: 'Seamless  Appointments',
+    title: 'Seamles  Appointments',
     description: 'Book in-clinic or virtual consultations in seconds. Say goodbye to long waiting times on the phone.',
     image: require('../../../assets/onboarding/calendar.png')
   },
@@ -93,16 +93,16 @@ export default function Onboarding({ navigation }) {
                 <Typography variant="bodyLg" color="neutral.500" style={styles.description}>
                   {item.description}
                 </Typography>
-                
+
                 {/* Pagination under text */}
                 <View style={styles.pagination}>
                   {SLIDES.map((_, i) => (
-                    <View 
-                      key={i} 
+                    <View
+                      key={i}
                       style={[
-                        styles.dot, 
+                        styles.dot,
                         currentIndex === i ? styles.dotActive : styles.dotInactive
-                      ]} 
+                      ]}
                     />
                   ))}
                 </View>

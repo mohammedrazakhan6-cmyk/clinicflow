@@ -26,7 +26,7 @@ export default function AdminProfile({ navigation }) {
         .select('*')
         .eq('id', user.id)
         .single();
-      
+
       setProfile(data || {});
     } catch (e) {
       console.log('Error fetching profile:', e);
@@ -65,59 +65,59 @@ export default function AdminProfile({ navigation }) {
   if (loading) {
     return (
       <View style={styles.container}>
-        {[1,2,3,4,5].map(i => <SkeletonLoader key={i} width="100%" height={48} style={{marginBottom: 16}} />)}
+        {[1, 2, 3, 4, 5].map(i => <SkeletonLoader key={i} width="100%" height={48} style={{ marginBottom: 16 }} />)}
       </View>
     );
   }
 
   return (
-    <View style={{flex: 1, backgroundColor: theme.colors.neutral[50]}}>
-    <ScrollView style={styles.container} contentContainerStyle={{padding: theme.spacing[4], paddingTop: 60, paddingBottom: 100}}>
-      <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing[6]}}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={{marginRight: 16}}>
-          <ArrowLeft size={24} color={theme.colors.neutral[900]} />
-        </TouchableOpacity>
-        <Typography variant="h2" color="neutral.900">My Profile</Typography>
-      </View>
-      
-      <Input
-        label="Full Name"
-        value={profile.name || ''}
-        onChangeText={(txt) => setProfile({...profile, name: txt})}
-      />
-      <Input
-        label="Phone Number"
-        value={profile.phone || ''}
-        onChangeText={(txt) => setProfile({...profile, phone: txt})}
-        keyboardType="phone-pad"
-      />
-      <Input
-        label="Email address (Read-only)"
-        value={profile.email || ''}
-        editable={false}
-      />
-      <View style={styles.row}>
+    <View style={{ flex: 1, backgroundColor: theme.colors.neutral[50] }}>
+      <ScrollView style={styles.container} contentContainerStyle={{ padding: theme.spacing[4], paddingTop: 60, paddingBottom: 100 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing[6] }}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginRight: 16 }}>
+            <ArrowLeft size={24} color={theme.colors.neutral[900]} />
+          </TouchableOpacity>
+          <Typography variant="h2" color="neutral.900">My Profile</Typography>
+        </View>
+
         <Input
-          label="Age"
-          value={profile.age ? String(profile.age) : ''}
-          onChangeText={(txt) => setProfile({...profile, age: txt})}
-          keyboardType="numeric"
-          style={{flex: 1, marginRight: theme.spacing[2]}}
+          label="Full Name"
+          value={profile.name || ''}
+          onChangeText={(txt) => setProfile({ ...profile, name: txt })}
         />
         <Input
-          label="Gender"
-          value={profile.gender || ''}
-          onChangeText={(txt) => setProfile({...profile, gender: txt})}
-          style={{flex: 1, marginLeft: theme.spacing[2]}}
+          label="Phone Number"
+          value={profile.phone || ''}
+          onChangeText={(txt) => setProfile({ ...profile, phone: txt })}
+          keyboardType="phone-pad"
         />
-      </View>
+        <Input
+          label="Email address"
+          value={profile.email || ''}
+          editable={false}
+        />
+        <View style={styles.row}>
+          <Input
+            label="Age"
+            value={profile.age ? String(profile.age) : ''}
+            onChangeText={(txt) => setProfile({ ...profile, age: txt })}
+            keyboardType="numeric"
+            style={{ flex: 1, marginRight: theme.spacing[2] }}
+          />
+          <Input
+            label="Gender"
+            value={profile.gender || ''}
+            onChangeText={(txt) => setProfile({ ...profile, gender: txt })}
+            style={{ flex: 1, marginLeft: theme.spacing[2] }}
+          />
+        </View>
 
-      <Button title="Save Changes" onPress={handleSave} loading={saving} style={styles.saveBtn} />
-      
-      <Button title="Logout" variant="secondary" onPress={handleLogout} textStyle={{color: theme.colors.error[500]}} />
+        <Button title="Save Changes" onPress={handleSave} loading={saving} style={styles.saveBtn} />
 
-    </ScrollView>
-    <AdminBottomNav navigation={navigation} activeRoute="AdminProfile" />
+        <Button title="Logout" variant="secondary" onPress={handleLogout} textStyle={{ color: theme.colors.error[500] }} />
+
+      </ScrollView>
+      <AdminBottomNav navigation={navigation} activeRoute="AdminProfile" />
     </View>
   );
 }

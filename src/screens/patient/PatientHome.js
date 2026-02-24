@@ -7,6 +7,7 @@ import { SkeletonLoader } from '../../components/SkeletonLoader';
 import { theme } from '../../styles/theme';
 import { supabase } from '../../api/supabase';
 import { Bell, MessageCircle, Video, Calendar, Clock, HeartPulse, Brain, Bone, ArrowUpRight, Stethoscope, Home as HomeIcon, LayoutGrid, Heart, Users } from 'lucide-react-native';
+import maleDoc from '../../../assets/onboarding/doctorprofile.png';
 
 export default function PatientHome({ navigation }) {
   const [profile, setProfile] = useState(null);
@@ -103,8 +104,15 @@ export default function PatientHome({ navigation }) {
               {appointment ? (
                 <View>
                   <View style={styles.doctorInfoRow}>
-                    <View style={styles.doctorAvatar} />
+                    <View style={styles.doctorAvatar}>
+                      <Image
+                        source={require('../../../assets/onboarding/maleDoc.png')}
+                        style={styles.doctorAvatarImage}
+                        resizeMode="cover"
+                      />
+                    </View>
                     <View style={{ flex: 1, marginLeft: 12 }}>
+
                       <Typography variant="bodyLg" color="neutral.900" style={{ fontWeight: 'bold' }}>
                         {appointment.doctor?.name || 'Clinic Flow Doctor'}
                       </Typography>
@@ -142,9 +150,9 @@ export default function PatientHome({ navigation }) {
               <Typography variant="bodyLg" color="neutral.500">Pick the</Typography>
               <Typography variant="h2" color="neutral.900" style={{ fontWeight: 'bold' }}>Right Specialist</Typography>
             </View>
-            <TouchableOpacity style={styles.arrowBtn} onPress={() => navigation.navigate('DoctorsList')}>
+            {/* <TouchableOpacity style={styles.arrowBtn} onPress={() => navigation.navigate('DoctorsList')}>
               <ArrowUpRight size={20} color={theme.colors.neutral[900]} />
-            </TouchableOpacity>
+            </TouchableOpacity> */}
           </View>
 
           <View style={styles.grid}>
@@ -381,5 +389,10 @@ const styles = StyleSheet.create({
   navBtnActive: {
     backgroundColor: theme.colors.neutral[0],
     ...theme.shadow.card,
-  }
+  },
+  doctorAvatarImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+  },
 });

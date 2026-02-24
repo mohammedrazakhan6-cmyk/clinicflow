@@ -7,6 +7,8 @@ import { SkeletonLoader } from '../../components/SkeletonLoader';
 import { theme } from '../../styles/theme';
 import { supabase } from '../../api/supabase';
 import { ArrowLeft, Phone, MessageCircle, Star, Calendar, Users, ChevronRight } from 'lucide-react-native';
+import maleDoc from '../../../assets/onboarding/doctorprofile.png';
+
 
 const generateTimeSlots = (start, end, durationMins, bookedSlots, isToday) => {
   const slots = [];
@@ -119,24 +121,29 @@ export default function BookAppointment({ route, navigation }) {
   const handleBook = async () => {
     if (!selectedTime) return;
 
+    console.log("Selected Time:", selectedTime);
+    console.log("Doctor ID:", doctorId);
+
     setSubmitting(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
-      // 1. Fetch max queue_order and token_number FOR THIS DOCTOR and DATE
       const { data: maxData, error: maxError } = await supabase
         .from('appointments')
-        .select('queue_order, token_number')
+        .select('queue_order, token')
         .eq('date', selectedDate)
         .eq('doctor_id', doctorId)
         .order('queue_order', { ascending: false })
         .limit(1);
 
-      if (maxError) throw maxError;
+      if (maxError) {
+        console.log("Max fetch error:", maxError);
+        throw maxError;
+      }
 
-      const lastQueueOrder = maxData && maxData.length > 0 ? maxData[0].queue_order : 0;
-      const lastTokenNumber = maxData && maxData.length > 0 ? maxData[0].token_number : 0;
+      const lastQueueOrder = maxData?.[0]?.queue_order || 0;
+      const lastTokenNumber = maxData?.[0]?.token || 0;
 
       const queue_order = lastQueueOrder + 1;
       const token_number = lastTokenNumber + 1;
@@ -214,7 +221,8 @@ export default function BookAppointment({ route, navigation }) {
 
             <View style={styles.doctorImageWrap}>
               <Image
-                source={{ uri: 'https://cdn-icons-png.flaticon.com/512/3774/3774299.png' }}
+                source={require('../../../assets/onboarding/doctorprofile.png')}
+                // source={{ uri: 'https://cdn-icons-png.flaticon.com/512/3774/3774299.png' }}
                 style={styles.doctorImage}
                 resizeMode="contain"
               />

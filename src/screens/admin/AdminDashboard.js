@@ -61,7 +61,7 @@ export default function AdminDashboard({ navigation }) {
       let previewQuery = supabase
         .from('appointments')
         .select(`
-          id, status, queue_order, time, token_number, patient_id, walk_in_id,
+          id, status, queue_order, time, token, patient_id, walk_in_id,
           users (name),
           walk_ins (name)
         `)
@@ -75,6 +75,10 @@ export default function AdminDashboard({ navigation }) {
       }
 
       const { data: apptsPreview } = await previewQuery;
+
+      if (error) {
+        console.log("Preview error:", error);
+      }
 
       setAppointmentsPreview(apptsPreview || []);
 

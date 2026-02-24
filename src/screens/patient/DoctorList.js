@@ -7,7 +7,7 @@ import { theme } from '../../styles/theme';
 import { ArrowLeft, Search, SlidersHorizontal, HeartPulse, Brain, ChevronRight, User } from 'lucide-react-native';
 
 const maleDoc = require('../../../assets/onboarding/maleDoc.png');
-const femaleDoc = require('../../../assets/onboarding/femaleDoc.png');
+const femaleDoc = require('../../../assets/onboarding/sathish.png');
 
 import { supabase } from '../../api/supabase';
 

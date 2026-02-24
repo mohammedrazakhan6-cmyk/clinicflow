@@ -94,7 +94,7 @@ export default function RegisterWalkIn({ navigation }) {
         time: timeStr,
         status: 'waiting',
         queue_order: nextOrder,
-        token_number: nextOrder, // Matches queue_order for walk-ins
+        token: nextOrder,
         notes: 'Walk-in Registration'
       }]);
 
