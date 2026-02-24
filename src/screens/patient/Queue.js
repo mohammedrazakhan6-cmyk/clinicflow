@@ -6,42 +6,52 @@ import { SkeletonLoader } from '../../components/SkeletonLoader';
 import { theme } from '../../styles/theme';
 import { supabase } from '../../api/supabase';
 import { ArrowLeft } from 'lucide-react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function Queue({ navigation }) {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [currentUserAppt, setCurrentUserAppt] = useState(null);
+  const [doctorSettings, setDoctorSettings] = useState(null);
+
+  const today = new Date().toISOString().split('T')[0];
 
   useEffect(() => {
-    fetchQueue();
+    fetchQueueAndSettings();
 
+    // Real-time subscription for queue updates
     const sub = supabase
-      .channel('public:appointments')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, fetchQueue)
+      .channel('queue-realtime')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'appointments', filter: `date=eq.${today}` },
+        fetchQueueAndSettings
+      )
       .subscribe();
 
     return () => supabase.removeChannel(sub);
   }, []);
 
-  const fetchQueue = async () => {
+  const fetchQueueAndSettings = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      const today = new Date().toISOString().split('T')[0];
 
-      // Fetch all waiting or in-consultation appointments for today ordered by queue_order or time
+      // Fetch settings for estimated time
+      const { data: settings } = await supabase.from('doctor_settings').select('slot_duration').single();
+      setDoctorSettings(settings || { slot_duration: 15 });
+
+      // Fetch all waiting or in-consultation appointments for today
       const { data: qData } = await supabase
         .from('appointments')
         .select(`
-          id, queue_order, status, time, patient_id,
+          id, queue_order, status, time, patient_id, token_number,
           users (name)
         `)
         .eq('date', today)
         .in('status', ['waiting', 'in_consultation'])
-        .order('queue_order', { ascending: true })
-        .order('time', { ascending: true });
+        .order('queue_order', { ascending: true });
 
       setAppointments(qData || []);
-      
+
       const myAppt = qData?.find(a => a.patient_id === user.id);
       setCurrentUserAppt(myAppt || null);
     } catch (e) {
@@ -51,87 +61,117 @@ export default function Queue({ navigation }) {
     }
   };
 
-  const getMyPositionIndex = () => {
-    if (!currentUserAppt) return null;
-    return appointments.findIndex(a => a.id === currentUserAppt.id) + 1;
-  };
-
   if (loading) {
     return (
       <View style={styles.container}>
-        <SkeletonLoader width="100%" height={120} style={{marginBottom: 16}} />
-        <SkeletonLoader width="100%" height={60} style={{marginBottom: 8}} />
-        <SkeletonLoader width="100%" height={60} style={{marginBottom: 8}} />
+        <SafeAreaView style={{ flex: 1, padding: 24 }}>
+          <SkeletonLoader width="100%" height={160} borderRadius={24} style={{ marginBottom: 24 }} />
+          <View style={{ flexDirection: 'row', gap: 16, marginBottom: 24 }}>
+            <SkeletonLoader width="47%" height={100} borderRadius={20} />
+            <SkeletonLoader width="47%" height={100} borderRadius={20} />
+          </View>
+          <SkeletonLoader width="100%" height={300} borderRadius={24} />
+        </SafeAreaView>
       </View>
     );
   }
 
-  const myPos = getMyPositionIndex();
-  const currentServing = appointments.find(a => a.status === 'in_consultation');
-  const estWaitTime = myPos ? (myPos - 1) * 15 : 0; // 15 mins approx
+  const myIndex = appointments.findIndex(a => a.id === currentUserAppt?.id);
+  const myPos = myIndex !== -1 ? myIndex + 1 : null;
+  const currentServing = appointments.find(a => a.status === 'in_consultation') || appointments[0]; // fallback to first waiting if none in consultation
+  const estWaitTime = myIndex > 0 ? myIndex * (doctorSettings?.slot_duration || 15) : 0;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{padding: theme.spacing[4], paddingTop: 60}}>
-      
-      <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing[6]}}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={{marginRight: 16}}>
-          <ArrowLeft size={24} color={theme.colors.neutral[900]} />
-        </TouchableOpacity>
-        <Typography variant="h2" color="neutral.900">Live Queue</Typography>
-      </View>
+    <View style={styles.container}>
+      <SafeAreaView style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 40 }}>
 
-      <Card style={[styles.mainCard, { backgroundColor: theme.colors.primary[500] }]}>
-        <Typography variant="bodyLg" color="neutral.0" align="center">Your Position</Typography>
-        <Typography variant="h1" color="neutral.0" align="center" style={{fontSize: 48, lineHeight: 56, marginVertical: 8}}>
-          {myPos ? `#${myPos}` : '--'}
-        </Typography>
-        <Typography variant="caption" color="neutral.0" align="center">
-          {myPos ? `Est. wait time: ~${estWaitTime} mins` : 'You do not have an active appointment right now.'}
-        </Typography>
-      </Card>
+          <View style={styles.header}>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+              <ArrowLeft size={24} color={theme.colors.neutral[900]} />
+            </TouchableOpacity>
+            <Typography variant="h2" color="neutral.900">Live Queue</Typography>
+          </View>
 
-      <View style={styles.statsRow}>
-        <View style={styles.statBox}>
-          <Typography variant="h3" color="neutral.900">{appointments.length}</Typography>
-          <Typography variant="caption" color="neutral.700">Total Waiting</Typography>
-        </View>
-        <View style={styles.statBox}>
-          <Typography variant="h3" color="warning.500">{currentServing?.queue_order ? `#${currentServing.queue_order}` : '--'}</Typography>
-          <Typography variant="caption" color="neutral.700">Now Serving</Typography>
-        </View>
-      </View>
+          {currentUserAppt ? (
+            <Card style={styles.statusCard}>
+              <View style={styles.tokenSection}>
+                <Typography variant="caption" color="neutral.100" style={{ opacity: 0.8 }}>Token Number</Typography>
+                <Typography variant="h1" color="neutral.0" style={styles.tokenText}>
+                  #{currentUserAppt.token_number || currentUserAppt.queue_order}
+                </Typography>
+              </View>
 
-      <Typography variant="h3" color="neutral.900" style={styles.listTitle}>Queue Flow</Typography>
+              <View style={styles.divider} />
 
-      {appointments.map((appt, idx) => {
-        const isMe = appt.patient_id === currentUserAppt?.patient_id;
-        const isInConsultation = appt.status === 'in_consultation';
-        
-        return (
-          <View key={appt.id} style={[styles.queueItem, isMe && styles.myQueueItem]}>
-            <View style={[styles.posCircle, isInConsultation && {backgroundColor: theme.colors.warning[500]}]}>
-              <Typography variant="bodyLg" color="neutral.0">{idx + 1}</Typography>
-            </View>
-            <View style={styles.queueInfo}>
-              <Typography variant="bodyLg" color={isMe ? 'primary.500' : 'neutral.900'} style={{fontWeight: isMe ? 'bold' : 'normal'}}>
-                {isMe ? 'You' : `Patient #${appt.queue_order}`}
+              <View style={styles.positionRow}>
+                <View style={styles.posItem}>
+                  <Typography variant="caption" color="neutral.100" style={{ opacity: 0.8 }}>Position</Typography>
+                  <Typography variant="h3" color="neutral.0">#{myPos}</Typography>
+                </View>
+                <View style={styles.posItem}>
+                  <Typography variant="caption" color="neutral.100" style={{ opacity: 0.8 }}>Est. Wait</Typography>
+                  <Typography variant="h3" color="neutral.0">{estWaitTime}m</Typography>
+                </View>
+              </View>
+            </Card>
+          ) : (
+            <View style={styles.emptyState}>
+              <Typography variant="bodyLg" color="neutral.500" align="center">
+                You have no active appointment.
               </Typography>
-              <Typography variant="caption" color="neutral.700">{appt.time}</Typography>
             </View>
-            <View>
-              {isInConsultation && <Typography variant="caption" color="warning.500">Serving</Typography>}
+          )}
+
+          <View style={styles.statsRow}>
+            <View style={styles.statBox}>
+              <Typography variant="h3" color="neutral.900">{appointments.length}</Typography>
+              <Typography variant="caption" color="neutral.500">Total Waiting</Typography>
+            </View>
+            <View style={styles.statBox}>
+              <Typography variant="h3" color="warning.500">
+                {currentServing?.status === 'in_consultation' ? `#${currentServing.token_number || currentServing.queue_order}` : 'None'}
+              </Typography>
+              <Typography variant="caption" color="neutral.500">Now Serving</Typography>
             </View>
           </View>
-        );
-      })}
 
-      {appointments.length === 0 && (
-        <Typography variant="bodyLg" color="neutral.700" align="center" style={{marginTop: 32}}>
-          Queue is empty.
-        </Typography>
-      )}
+          <Typography variant="h3" color="neutral.900" style={{ marginBottom: 16 }}>Queue Sequence</Typography>
 
-    </ScrollView>
+          <View style={styles.queueContainer}>
+            {appointments.map((appt, idx) => {
+              const isMe = appt.patient_id === currentUserAppt?.patient_id;
+              const isInConsultation = appt.status === 'in_consultation';
+
+              return (
+                <View key={appt.id} style={[styles.queueItem, isMe && styles.myQueueItem]}>
+                  <View style={[styles.posCircle, isInConsultation && { backgroundColor: theme.colors.warning[500] }]}>
+                    <Typography variant="bodyLg" color="neutral.0">{idx + 1}</Typography>
+                  </View>
+                  <View style={styles.queueInfo}>
+                    <Typography variant="bodyLg" color={isMe ? 'primary.500' : 'neutral.900'} style={{ fontWeight: isMe ? 'bold' : '600' }}>
+                      {isMe ? 'You (Me)' : `Token #${appt.token_number || appt.queue_order}`}
+                    </Typography>
+                    <Typography variant="caption" color="neutral.500">{appt.time}</Typography>
+                  </View>
+                  {isInConsultation && (
+                    <View style={styles.servingBadge}>
+                      <Typography variant="caption" color="warning.600" style={{ fontWeight: 'bold' }}>SERVING</Typography>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
+
+            {appointments.length === 0 && (
+              <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                <Typography variant="bodyMd" color="neutral.400">The queue is currently empty.</Typography>
+              </View>
+            )}
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </View>
   );
 }
 
@@ -140,52 +180,114 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: theme.colors.neutral[50],
   },
-  title: {
-    marginBottom: theme.spacing[6],
-  },
-  mainCard: {
-    marginBottom: theme.spacing[4],
+  header: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: theme.spacing[6],
+    marginBottom: 24,
+    gap: 16,
+  },
+  backBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: theme.colors.neutral[0],
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...theme.shadow.card,
+    elevation: 2,
+  },
+  statusCard: {
+    backgroundColor: theme.colors.primary[500],
+    borderRadius: 24,
+    padding: 24,
+    marginBottom: 24,
+    ...theme.shadow.card,
+    elevation: 4,
+  },
+  tokenSection: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  tokenText: {
+    fontSize: 56,
+    lineHeight: 64,
+    fontWeight: '800',
+    marginTop: 4,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    marginBottom: 20,
+  },
+  positionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  posItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  emptyState: {
+    backgroundColor: theme.colors.neutral[0],
+    borderRadius: 24,
+    padding: 40,
+    marginBottom: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: theme.colors.neutral[200],
   },
   statsRow: {
     flexDirection: 'row',
-    gap: theme.spacing[4],
-    marginBottom: theme.spacing[6],
+    gap: 16,
+    marginBottom: 24,
   },
   statBox: {
     flex: 1,
     backgroundColor: theme.colors.neutral[0],
-    padding: theme.spacing[4],
-    borderRadius: theme.radius.lg,
+    padding: 16,
+    borderRadius: 20,
     alignItems: 'center',
     ...theme.shadow.card,
+    elevation: 2,
   },
-  listTitle: {
-    marginBottom: theme.spacing[4],
+  queueContainer: {
+    backgroundColor: theme.colors.neutral[0],
+    borderRadius: 24,
+    padding: 16,
+    ...theme.shadow.card,
+    elevation: 2,
   },
   queueItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.colors.neutral[0],
-    padding: theme.spacing[4],
-    borderRadius: theme.radius.md,
-    marginBottom: theme.spacing[2],
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 8,
+    backgroundColor: theme.colors.neutral[50],
   },
   myQueueItem: {
+    backgroundColor: theme.colors.primary[50],
     borderWidth: 1,
-    borderColor: theme.colors.primary[500],
+    borderColor: theme.colors.primary[200],
   },
   posCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: theme.colors.neutral[700],
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: theme.colors.neutral[800],
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: theme.spacing[4],
+    marginRight: 16,
   },
   queueInfo: {
     flex: 1,
   },
+  servingBadge: {
+    backgroundColor: theme.colors.warning[100],
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  }
 });

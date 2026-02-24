@@ -34,9 +34,9 @@ const dummyProfile = {
 };
 
 const dummyAppointments = [
-  { id: 1, patient_id: dummyUser.id, date: new Date().toISOString().split('T')[0], time: '10:00', status: 'waiting', queue_order: 1, notes: null, users: { name: 'Arjun Kumar', phone: '+91 98765 43210' } },
-  { id: 2, patient_id: 'other-1', date: new Date().toISOString().split('T')[0], time: '10:30', status: 'waiting', queue_order: 2, notes: null, users: { name: 'Priya Sharma', phone: '+91 87654 32109' } },
-  { id: 3, patient_id: 'other-2', date: new Date().toISOString().split('T')[0], time: '11:00', status: 'completed', queue_order: 3, notes: 'All good', users: { name: 'Rahul Patel', phone: '+91 76543 21098' } }
+  { id: 1, patient_id: dummyUser.id, date: new Date().toISOString().split('T')[0], time: '10:00 AM', status: 'waiting', queue_order: 1, token_number: 1, notes: null, users: { name: 'Arjun Kumar', phone: '+91 98765 43210' } },
+  { id: 2, patient_id: 'other-1', date: new Date().toISOString().split('T')[0], time: '10:30 AM', status: 'waiting', queue_order: 2, token_number: 2, notes: null, users: { name: 'Priya Sharma', phone: '+91 87654 32109' } },
+  { id: 3, patient_id: 'other-2', date: new Date().toISOString().split('T')[0], time: '11:00 AM', status: 'completed', queue_order: 3, token_number: 3, notes: 'All good', users: { name: 'Rahul Patel', phone: '+91 76543 21098' } }
 ];
 
 const dummySettings = {
@@ -61,9 +61,15 @@ export const supabase = {
       authListeners.push(callback);
       // simulate no session initially
       setTimeout(() => callback('INITIAL_SESSION', null), 100);
-      return { data: { subscription: { unsubscribe: () => {
-        authListeners = authListeners.filter(cb => cb !== callback);
-      } } } };
+      return {
+        data: {
+          subscription: {
+            unsubscribe: () => {
+              authListeners = authListeners.filter(cb => cb !== callback);
+            }
+          }
+        }
+      };
     },
     signUp: async (opts) => {
       const session = { user: dummyUser };
@@ -74,9 +80,9 @@ export const supabase = {
       let role = 'patient';
       if (opts.email?.toLowerCase().includes('doctor')) role = 'doctor';
       if (opts.email?.toLowerCase().includes('admin')) role = 'admin';
-      
+
       dummyProfile.role = role;
-      
+
       const session = { user: dummyUser };
       notifyListeners('SIGNED_IN', session);
       return { data: { user: dummyUser, session }, error: null };
@@ -102,8 +108,10 @@ export const supabase = {
           })
         }),
         not: () => ({
-          // useful for admin stats
-          then: (cb) => cb({ data: dummyAppointments, error: null })
+          then: (cb) => {
+            if (table === 'appointments') return cb({ data: dummyAppointments, error: null });
+            return cb({ data: [], error: null });
+          }
         }),
         then: (cb) => {
           if (table === 'appointments' && col === 'date') return cb({ data: dummyAppointments, error: null });
@@ -112,7 +120,11 @@ export const supabase = {
         }
       }),
       limit: () => ({ single: async () => ({ data: table === 'doctor_settings' ? dummySettings : null, error: null }) }),
-      then: (cb) => cb({ data: null, error: null })
+      single: async () => ({ data: table === 'doctor_settings' ? dummySettings : null, error: null }),
+      then: (cb) => {
+        if (table === 'appointments') return cb({ data: dummyAppointments, error: null });
+        return cb({ data: null, error: null });
+      }
     }),
     insert: async (data) => ({ data, error: null }),
     update: () => ({ eq: async () => ({ error: null }) }),
@@ -121,6 +133,6 @@ export const supabase = {
   channel: () => ({
     on: () => ({ subscribe: () => ({}) })
   }),
-  removeChannel: () => {},
+  removeChannel: () => { },
   rpc: async () => ({ error: null })
 };
