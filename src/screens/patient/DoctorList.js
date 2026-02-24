@@ -4,7 +4,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Typography } from '../../components/Typography';
 import { theme } from '../../styles/theme';
-import { ArrowLeft, Search, SlidersHorizontal, HeartPulse, Brain, ChevronRight } from 'lucide-react-native';
+import { ArrowLeft, Search, SlidersHorizontal, HeartPulse, Brain, ChevronRight, User } from 'lucide-react-native';
+
+const maleDoc = require('../../../assets/onboarding/maleDoc.png');
+const femaleDoc = require('../../../assets/onboarding/femaleDoc.png');
 
 const DOCTORS = [
   {
@@ -13,8 +16,9 @@ const DOCTORS = [
     role: 'Cardiologist',
     tags: 'Heart Health, Screening & treatment',
     price: '₹1200',
-    icon: <HeartPulse size={20} color={theme.colors.primary[500]} />,
+    icon: <HeartPulse size={16} color={theme.colors.primary[500]} />,
     colorType: 'primary',
+    image: maleDoc,
   },
   {
     id: '2',
@@ -22,8 +26,9 @@ const DOCTORS = [
     role: 'Neurologist',
     tags: 'Brain, Nerve & Spinal Disorders',
     price: '₹1000',
-    icon: <Brain size={20} color={theme.colors.accent[500]} />,
+    icon: <Brain size={16} color={theme.colors.accent[500]} />,
     colorType: 'neutral',
+    image: femaleDoc, // Using female for variability in fallback/demo
   }
 ];
 
@@ -34,26 +39,29 @@ export default function DoctorList({ navigation }) {
     const cardContent = (
       <View style={styles.cardInner}>
         <View style={styles.cardHeader}>
-          <View style={styles.specialtyIconWrap}>
-            {item.icon}
+          <View style={styles.profileWrapper}>
+            {item.image ? (
+              <Image source={item.image} style={styles.profileImage} />
+            ) : (
+              <View style={[styles.profileImage, styles.fallbackAvatar]}>
+                <Typography variant="h3" color="primary.500">
+                  {item.name.split(' ').map(n => n[0]).join('')}
+                </Typography>
+              </View>
+            )}
+            <View style={styles.specIconBadge}>
+              {item.icon}
+            </View>
           </View>
+
           <View style={styles.headerText}>
-            <Typography variant="bodyLg" color={isPrimary ? 'neutral.0' : 'neutral.900'} style={{fontWeight: 'bold'}}>
+            <Typography variant="bodyLg" color={isPrimary ? 'neutral.0' : 'neutral.900'} style={{ fontWeight: 'bold' }}>
               {item.name}
             </Typography>
-            <Typography variant="caption" color={isPrimary ? 'neutral.0' : 'neutral.500'} style={{opacity: isPrimary ? 0.9 : 1}}>
+            <Typography variant="caption" color={isPrimary ? 'neutral.0' : 'neutral.500'} style={{ opacity: isPrimary ? 0.9 : 1 }}>
               {item.role}
             </Typography>
           </View>
-        </View>
-
-        {/* Placeholder for doctor image, using absolute positioning on the right */}
-        <View style={styles.doctorImagePlaceholder}>
-          <Image 
-             source={{ uri: 'https://cdn-icons-png.flaticon.com/512/3774/3774299.png' }} 
-             style={{ width: 120, height: 160, opacity: 0.8 }} 
-             resizeMode="contain" 
-          />
         </View>
 
         <Typography variant="bodyMd" color={isPrimary ? 'neutral.0' : 'neutral.900'} style={styles.tagsText}>
@@ -62,22 +70,22 @@ export default function DoctorList({ navigation }) {
 
         <View style={styles.priceRow}>
           <View>
-            <Typography variant="caption" color={isPrimary ? 'neutral.0' : 'neutral.500'} style={{opacity: isPrimary ? 0.8 : 1}}>
+            <Typography variant="caption" color={isPrimary ? 'neutral.0' : 'neutral.500'} style={{ opacity: isPrimary ? 0.8 : 1 }}>
               Starting from
             </Typography>
-            <Typography variant="bodyLg" color={isPrimary ? 'neutral.0' : 'neutral.900'} style={{fontWeight: 'bold'}}>
+            <Typography variant="bodyLg" color={isPrimary ? 'neutral.0' : 'neutral.900'} style={{ fontWeight: 'bold' }}>
               {item.price} <Typography variant="caption" color={isPrimary ? 'neutral.0' : 'neutral.500'}>/per session</Typography>
             </Typography>
           </View>
-          
-          <TouchableOpacity 
+
+          <TouchableOpacity
             style={[styles.bookBtn, isPrimary ? styles.bookBtnLight : styles.bookBtnDark]}
             onPress={() => navigation.navigate('BookAppointment', { doctorId: item.id })}
           >
-            <Typography variant="bodyMd" color={isPrimary ? 'primary.600' : 'neutral.500'} style={{fontWeight: '600', marginRight: 8}}>
-              Book Now 
+            <Typography variant="bodyMd" color={isPrimary ? 'primary.600' : 'neutral.500'} style={{ fontWeight: '600', marginRight: 8 }}>
+              Book Now
             </Typography>
-            <View style={[styles.arrowCircle, isPrimary ? {backgroundColor: theme.colors.primary[500]} : {backgroundColor: theme.colors.neutral[200]}]}>
+            <View style={[styles.arrowCircle, isPrimary ? { backgroundColor: theme.colors.primary[500] } : { backgroundColor: theme.colors.neutral[200] }]}>
               <ChevronRight size={16} color={isPrimary ? '#fff' : theme.colors.neutral[500]} />
             </View>
           </TouchableOpacity>
@@ -111,7 +119,7 @@ export default function DoctorList({ navigation }) {
         <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.goBack()}>
           <ArrowLeft size={24} color={theme.colors.neutral[900]} />
         </TouchableOpacity>
-        
+
         <View style={styles.headerRight}>
           <TouchableOpacity style={styles.iconBtn}>
             <Search size={20} color={theme.colors.neutral[900]} />
@@ -191,32 +199,47 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 2,
   },
-  specialtyIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  profileWrapper: {
+    padding: 2,
     backgroundColor: theme.colors.neutral[0],
+    borderRadius: 34,
+    ...theme.shadow.card,
+    elevation: 4,
+    marginRight: 16,
+  },
+  profileImage: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 2,
+    borderColor: theme.colors.neutral[0],
+  },
+  fallbackAvatar: {
+    backgroundColor: theme.colors.neutral[100],
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+  },
+  specIconBadge: {
+    position: 'absolute',
+    bottom: -4,
+    right: -4,
+    backgroundColor: theme.colors.neutral[0],
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...theme.shadow.card,
+    elevation: 2,
   },
   headerText: {
+    flex: 1,
     justifyContent: 'center',
   },
-  doctorImagePlaceholder: {
-    position: 'absolute',
-    right: 0,
-    bottom: 0,
-    width: '45%',
-    height: '110%',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    zIndex: 1,
-  },
   tagsText: {
-    width: '60%',
+    width: '100%',
     fontWeight: '500',
-    marginTop: 16,
+    marginTop: 20,
     zIndex: 2,
   },
   priceRow: {

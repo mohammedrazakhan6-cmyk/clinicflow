@@ -6,7 +6,7 @@ import { Typography } from '../../components/Typography';
 import { SkeletonLoader } from '../../components/SkeletonLoader';
 import { theme } from '../../styles/theme';
 import { supabase } from '../../api/supabase';
-import { Bell, MessageCircle, Video, Calendar, Clock, HeartPulse, Brain, Bone, ArrowUpRight, Stethoscope, Home as HomeIcon, LayoutGrid, Heart } from 'lucide-react-native';
+import { Bell, MessageCircle, Video, Calendar, Clock, HeartPulse, Brain, Bone, ArrowUpRight, Stethoscope, Home as HomeIcon, LayoutGrid, Heart, Users } from 'lucide-react-native';
 
 export default function PatientHome({ navigation }) {
   const [profile, setProfile] = useState(null);
@@ -25,7 +25,7 @@ export default function PatientHome({ navigation }) {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      
+
       const { data: profileData } = await supabase.from('users').select('*').eq('id', user.id).single();
       setProfile(profileData);
 
@@ -47,95 +47,92 @@ export default function PatientHome({ navigation }) {
 
   if (loading) {
     return (
-      <View style={{flex: 1, backgroundColor: theme.colors.neutral[50]}}>
-        {[1,2,3].map(i => <SkeletonLoader key={i} width="100%" height={150} style={{marginBottom: 16}} />)}
+      <View style={{ flex: 1, backgroundColor: theme.colors.neutral[50] }}>
+        {[1, 2, 3].map(i => <SkeletonLoader key={i} width="100%" height={150} style={{ marginBottom: 16 }} />)}
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <ScrollView bounces={false} contentContainerStyle={{paddingBottom: 100}}>
-        
+    <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+      <ScrollView bounces={false} contentContainerStyle={{ paddingBottom: 120 }}>
         {/* Top Header Gradient Section */}
         <LinearGradient
           colors={[theme.colors.primary[500], theme.colors.primary[100], theme.colors.neutral[50]]}
           locations={[0, 0.7, 1]}
           style={styles.headerGradient}
         >
-          <SafeAreaView edges={['top', 'left', 'right']}>
-            <View style={styles.topNav}>
-              <TouchableOpacity style={styles.userInfo} onPress={() => navigation.navigate('Profile')}>
-                <View style={styles.avatarPlaceholder}>
-                  <Typography variant="bodyMd" color="primary.500" style={{fontWeight: 'bold'}}>
-                    {profile?.name ? profile.name.charAt(0) : 'S'}
-                  </Typography>
-                </View>
-                <View>
-                  <Typography variant="bodyLg" color="neutral.0" style={{fontWeight: 'bold'}}>
-                    Hi {profile?.name?.split(' ')[0] || 'Sarah'},
-                  </Typography>
-                  <Typography variant="caption" color="neutral.0" style={{opacity: 0.8}}>
-                    Welcome back!
-                  </Typography>
-                </View>
-              </TouchableOpacity>
-
-              <View style={styles.navIcons}>
-                <TouchableOpacity style={styles.glassIcon}>
-                  <MessageCircle size={20} color={theme.colors.neutral[0]} />
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.glassIcon}>
-                  <Bell size={20} color={theme.colors.neutral[0]} />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            <Typography variant="h1" color="neutral.0" style={styles.mainTitle}>
-              Let's take the next step for your health!
-            </Typography>
-
-            {/* Next Appointment Card overlapping gradient */}
-            <View style={styles.apptCardContainer}>
-              <View style={styles.apptCard}>
-                <Typography variant="bodyLg" color="neutral.900" style={{fontWeight: 'bold', marginBottom: 16}}>
-                  Your Next Appointments {appointment ? '(1)' : '(0)'}
+          <View style={styles.topNav}>
+            <TouchableOpacity style={styles.userInfo} onPress={() => navigation.navigate('Profile')}>
+              <View style={styles.avatarPlaceholder}>
+                <Typography variant="bodyMd" color="primary.500" style={{ fontWeight: 'bold' }}>
+                  {profile?.name ? profile.name.charAt(0) : 'S'}
                 </Typography>
+              </View>
+              <View>
+                <Typography variant="bodyLg" color="neutral.0" style={{ fontWeight: 'bold' }}>
+                  Hi {profile?.name?.split(' ')[0] || 'Sarah'},
+                </Typography>
+                <Typography variant="caption" color="neutral.0" style={{ opacity: 0.8 }}>
+                  Welcome back!
+                </Typography>
+              </View>
+            </TouchableOpacity>
 
-                {appointment ? (
-                  <View>
-                    <View style={styles.doctorInfoRow}>
-                      <View style={styles.doctorAvatar} />
-                      <View style={{flex: 1, marginLeft: 12}}>
-                        <Typography variant="bodyLg" color="neutral.900" style={{fontWeight: 'bold'}}>
-                          Ronald Richards
-                        </Typography>
-                        <Typography variant="caption" color="neutral.500">Neurologist</Typography>
-                      </View>
-                      <View style={styles.videoIconContainer}>
-                        <Video size={18} color={theme.colors.primary[500]} />
-                      </View>
+            <View style={styles.navIcons}>
+              <TouchableOpacity style={styles.glassIcon}>
+                <MessageCircle size={20} color={theme.colors.neutral[0]} />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.glassIcon}>
+                <Bell size={20} color={theme.colors.neutral[0]} />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <Typography variant="h1" color="neutral.0" style={styles.mainTitle}>
+            Let's take the next step for your health!
+          </Typography>
+
+          {/* Next Appointment Card overlapping gradient */}
+          <View style={styles.apptCardContainer}>
+            <View style={styles.apptCard}>
+              <Typography variant="bodyLg" color="neutral.900" style={{ fontWeight: 'bold', marginBottom: 16 }}>
+                Your Next Appointments {appointment ? '(1)' : '(0)'}
+              </Typography>
+
+              {appointment ? (
+                <View>
+                  <View style={styles.doctorInfoRow}>
+                    <View style={styles.doctorAvatar} />
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <Typography variant="bodyLg" color="neutral.900" style={{ fontWeight: 'bold' }}>
+                        Ronald Richards
+                      </Typography>
+                      <Typography variant="caption" color="neutral.500">Neurologist</Typography>
                     </View>
-
-                    <View style={styles.dateTimeRow}>
-                      <View style={styles.dateBadge}>
-                        <Calendar size={14} color={theme.colors.neutral[700]} style={{marginRight: 6}} />
-                        <Typography variant="caption" color="neutral.900">{appointment.date}</Typography>
-                      </View>
-                      <View style={styles.dateBadge}>
-                        <Clock size={14} color={theme.colors.neutral[700]} style={{marginRight: 6}} />
-                        <Typography variant="caption" color="neutral.900">{appointment.time}</Typography>
-                      </View>
+                    <View style={styles.videoIconContainer}>
+                      <Video size={18} color={theme.colors.primary[500]} />
                     </View>
                   </View>
-                ) : (
-                  <Typography variant="bodyMd" color="neutral.500" align="center" style={{paddingVertical: 20}}>
-                    No upcoming appointments.
-                  </Typography>
-                )}
-              </View>
+
+                  <View style={styles.dateTimeRow}>
+                    <View style={styles.dateBadge}>
+                      <Calendar size={14} color={theme.colors.neutral[700]} style={{ marginRight: 6 }} />
+                      <Typography variant="caption" color="neutral.900">{appointment.date}</Typography>
+                    </View>
+                    <View style={styles.dateBadge}>
+                      <Clock size={14} color={theme.colors.neutral[700]} style={{ marginRight: 6 }} />
+                      <Typography variant="caption" color="neutral.900">{appointment.time}</Typography>
+                    </View>
+                  </View>
+                </View>
+              ) : (
+                <Typography variant="bodyMd" color="neutral.500" align="center" style={{ paddingVertical: 20 }}>
+                  No upcoming appointments.
+                </Typography>
+              )}
             </View>
-          </SafeAreaView>
+          </View>
         </LinearGradient>
 
         {/* Specialists Grid Area */}
@@ -143,7 +140,7 @@ export default function PatientHome({ navigation }) {
           <View style={styles.sectionHeader}>
             <View>
               <Typography variant="bodyLg" color="neutral.500">Pick the</Typography>
-              <Typography variant="h2" color="neutral.900" style={{fontWeight: 'bold'}}>Right Specialist</Typography>
+              <Typography variant="h2" color="neutral.900" style={{ fontWeight: 'bold' }}>Right Specialist</Typography>
             </View>
             <TouchableOpacity style={styles.arrowBtn} onPress={() => navigation.navigate('DoctorsList')}>
               <ArrowUpRight size={20} color={theme.colors.neutral[900]} />
@@ -156,7 +153,7 @@ export default function PatientHome({ navigation }) {
               <View style={styles.gridIconWrapRight}>
                 <Stethoscope size={24} color={theme.colors.primary[500]} />
               </View>
-              <Typography variant="bodyLg" color="neutral.900" style={{fontWeight: 'bold'}}>General{'\n'}Physician</Typography>
+              <Typography variant="bodyLg" color="neutral.900" style={{ fontWeight: 'bold' }}>General{'\n'}Physician</Typography>
             </TouchableOpacity>
 
             {/* Cardiologist */}
@@ -164,7 +161,7 @@ export default function PatientHome({ navigation }) {
               <View style={styles.gridIconWrapRight}>
                 <HeartPulse size={24} color={theme.colors.primary[500]} />
               </View>
-              <Typography variant="bodyLg" color="neutral.900" style={{fontWeight: 'bold'}}>Cardiologist{'\n'}Doctor</Typography>
+              <Typography variant="bodyLg" color="neutral.900" style={{ fontWeight: 'bold' }}>Cardiologist{'\n'}Doctor</Typography>
             </TouchableOpacity>
 
             {/* Neurologist */}
@@ -172,7 +169,7 @@ export default function PatientHome({ navigation }) {
               <View style={styles.gridIconWrapRight}>
                 <Brain size={24} color={theme.colors.accent[500]} />
               </View>
-              <Typography variant="bodyLg" color="neutral.900" style={{fontWeight: 'bold'}}>Neurologist{'\n'}Doctor</Typography>
+              <Typography variant="bodyLg" color="neutral.900" style={{ fontWeight: 'bold' }}>Neurologist{'\n'}Doctor</Typography>
             </TouchableOpacity>
 
             {/* Orthopedic */}
@@ -180,7 +177,7 @@ export default function PatientHome({ navigation }) {
               <View style={styles.gridIconWrapRight}>
                 <Bone size={24} color={theme.colors.accent[500]} />
               </View>
-              <Typography variant="bodyLg" color="neutral.900" style={{fontWeight: 'bold'}}>Orthopedic{'\n'}Doctor</Typography>
+              <Typography variant="bodyLg" color="neutral.900" style={{ fontWeight: 'bold' }}>Orthopedic{'\n'}Doctor</Typography>
             </TouchableOpacity>
           </View>
         </View>
@@ -193,17 +190,20 @@ export default function PatientHome({ navigation }) {
             <LayoutGrid size={24} color={theme.colors.neutral[900]} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.navBtn} onPress={() => navigation.navigate('DoctorList')}>
-            <Stethoscope size={24} color={theme.colors.neutral[400]} />
+            <Stethoscope size={24} color={theme.colors.neutral[600]} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.navBtn} onPress={() => navigation.navigate('Queue')}>
-            <Clock size={24} color={theme.colors.neutral[400]} />
+            <Clock size={24} color={theme.colors.neutral[600]} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.navBtn} onPress={() => navigation.navigate('VisitHistory')}>
-            <Heart size={24} color={theme.colors.neutral[400]} />
+            <Heart size={24} color={theme.colors.neutral[600]} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.navBtn} onPress={() => navigation.navigate('Profile')}>
+            <Users size={24} color={theme.colors.neutral[600]} />
           </TouchableOpacity>
         </View>
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -356,23 +356,25 @@ const styles = StyleSheet.create({
   floatingNavContainer: {
     position: 'absolute',
     bottom: 30,
-    left: 0,
-    right: 0,
+    left: 20,
+    right: 20,
     alignItems: 'center',
   },
   floatingNav: {
     flexDirection: 'row',
-    backgroundColor: theme.colors.neutral[200], // slightly darker pill background
+    backgroundColor: 'rgba(235, 238, 242, 0.95)',
     borderRadius: 40,
     paddingHorizontal: 8,
     paddingVertical: 8,
-    justifyContent: 'center',
-    gap: 16,
+    justifyContent: 'space-between',
+    width: '100%',
+    ...theme.shadow.modal,
+    elevation: 5,
   },
   navBtn: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     justifyContent: 'center',
     alignItems: 'center',
   },

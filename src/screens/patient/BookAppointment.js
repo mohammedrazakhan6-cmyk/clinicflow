@@ -8,16 +8,33 @@ import { theme } from '../../styles/theme';
 import { supabase } from '../../api/supabase';
 import { ArrowLeft, Phone, MessageCircle, Star, Calendar, Users, ChevronRight } from 'lucide-react-native';
 
-const generateTimeSlots = (start, end, durationMins) => {
+const generateTimeSlots = (start, end, durationMins, bookedSlots, isToday) => {
   const slots = [];
   let [h, m] = start.split(':').map(Number);
   const [eh, em] = end.split(':').map(Number);
-  
+
+  const now = new Date();
+  const currentHour = now.getHours();
+  const currentMin = now.getMinutes();
+
   while (h < eh || (h === eh && m < em)) {
     const period = h >= 12 ? 'PM' : 'AM';
     const displayH = h > 12 ? h - 12 : (h === 0 ? 12 : h);
-    slots.push(`${String(displayH).padStart(2, '0')}.${String(m).padStart(2, '0')} ${period}`);
-    
+    const timeString = `${String(displayH).padStart(2, '0')}:${String(m).padStart(2, '0')} ${period}`;
+
+    // Check if slot is in the past (only if date is today)
+    const isPast = isToday && (h < currentHour || (h === currentHour && m <= currentMin));
+
+    // Check if slot is booked
+    const isBooked = bookedSlots.includes(timeString);
+
+    slots.push({
+      time: timeString,
+      isPast,
+      isBooked,
+      status: isBooked ? 'BOOKED' : (isPast ? 'PAST' : 'AVAILABLE')
+    });
+
     m += durationMins;
     if (m >= 60) {
       h += Math.floor(m / 60);
@@ -29,32 +46,51 @@ const generateTimeSlots = (start, end, durationMins) => {
 
 export default function BookAppointment({ route, navigation }) {
   const doctorId = route.params?.doctorId;
-  
+
   const [selectedTime, setSelectedTime] = useState(null);
   const [visitType, setVisitType] = useState('in-clinic');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [settings, setSettings] = useState(null);
+  const [appointments, setAppointments] = useState([]);
   const [bookedSlots, setBookedSlots] = useState([]);
+
+  const today = new Date().toISOString().split('T')[0];
 
   useEffect(() => {
     fetchSettingsAndSlots();
+
+    // Real-time subscription
+    const sub = supabase
+      .channel('appointments-updates')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'appointments', filter: `date=eq.${today}` },
+        fetchSettingsAndSlots
+      )
+      .subscribe();
+
+    return () => supabase.removeChannel(sub);
   }, []);
 
   const fetchSettingsAndSlots = async () => {
     setLoading(true);
     try {
+      // Get Doctor Settings
       const { data: docSettings } = await supabase.from('doctor_settings').select('*').limit(1).single();
-      const s = docSettings || { start_time: '09:00', end_time: '17:00', slot_duration: 30, is_available: true };
+      const s = docSettings || { start_time: '09:00', end_time: '17:00', slot_duration: 30, is_available: true, max_patients: 20 };
       setSettings(s);
 
-      const today = new Date().toISOString().split('T')[0];
-      const { data: appointments } = await supabase.from('appointments').select('time, status').eq('date', today).not('status', 'eq', 'cancelled');
-      
-      // extremely basic mapping, mock data doesn't use proper format for this UI anyway
-      const booked = appointments ? appointments.map(a => a.time) : [];
+      // Get Today's Appointments
+      const { data: appointmentsData } = await supabase
+        .from('appointments')
+        .select('time, status')
+        .eq('date', today)
+        .not('status', 'eq', 'cancelled');
+
+      setAppointments(appointmentsData || []);
+      const booked = appointmentsData ? appointmentsData.map(a => a.time) : [];
       setBookedSlots(booked);
-      
+
     } catch (e) {
       console.log('Error fetching slots:', e);
     } finally {
@@ -63,35 +99,37 @@ export default function BookAppointment({ route, navigation }) {
   };
 
   const handleBook = async () => {
-    if (!selectedTime) {
-      Alert.alert('Error', 'Please select a time slot');
-      return;
-    }
+    if (!selectedTime) return;
 
     setSubmitting(true);
-    const { data: { user } } = await supabase.auth.getUser();
-
     try {
-      const nextOrder = bookedSlots.length + 1; 
-      const today = new Date().toISOString().split('T')[0];
-      
-      await supabase.from('appointments').insert([{
+      const { data: { user } } = await supabase.auth.getUser();
+      const queueOrder = (appointments?.length || 0) + 1;
+
+      const { error } = await supabase.from('appointments').insert([{
         patient_id: user.id || 'mock',
         date: today,
         time: selectedTime,
         status: 'waiting',
-        queue_order: nextOrder
+        queue_order: queueOrder,
+        token_number: queueOrder
       }]);
-      Alert.alert('Success', 'Appointment booked successfully!');
-      navigation.goBack();
+
+      if (error) throw error;
+
+      Alert.alert('Success', 'Your appointment has been booked!', [
+        { text: 'OK', onPress: () => navigation.navigate('PatientHome') }
+      ]);
     } catch (e) {
-      Alert.alert('Error', e.message);
+      Alert.alert('Booking Error', e.message);
     } finally {
       setSubmitting(false);
     }
   };
 
-  const timeSlots = settings ? generateTimeSlots(settings.start_time, settings.end_time, settings.slot_duration) : [];
+  const isLimitReached = settings && appointments.length >= settings.max_patients;
+  const isDoctorUnavailable = settings && !settings.is_available;
+  const timeSlots = settings ? generateTimeSlots(settings.start_time, settings.end_time, settings.slot_duration, bookedSlots, true) : [];
 
   return (
     <View style={styles.container}>
@@ -100,46 +138,41 @@ export default function BookAppointment({ route, navigation }) {
         locations={[0, 0.4, 1]}
         style={StyleSheet.absoluteFillObject}
       />
-      
-      <SafeAreaView style={{flex: 1}}>
-        <ScrollView contentContainerStyle={{paddingBottom: 40}}>
+
+      <SafeAreaView style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
           {/* Header */}
           <View style={styles.header}>
             <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.goBack()}>
               <ArrowLeft size={24} color={theme.colors.neutral[900]} />
             </TouchableOpacity>
-            <View style={styles.headerRight}>
-              <TouchableOpacity style={styles.iconBtn}>
-                <Phone size={20} color={theme.colors.neutral[900]} />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.iconBtn}>
-                <MessageCircle size={20} color={theme.colors.neutral[900]} />
-              </TouchableOpacity>
-            </View>
+            {/* Removed redundant icons */}
           </View>
 
           {/* Doctor Info Section */}
           <View style={styles.doctorInfoContainer}>
             <View style={styles.doctorTextContent}>
               <View style={styles.idBadge}>
-                <Typography variant="caption" color="neutral.500" style={{fontWeight: 'bold'}}>ID: 0269784</Typography>
+                <Typography variant="caption" color="neutral.500" style={{ fontWeight: 'bold' }}>ID: 0269784</Typography>
               </View>
               <Typography variant="h1" color="neutral.900" style={styles.doctorName}>
-                Dr. Vivek{'\n'}S
+                Dr. Rajesh Sharma
               </Typography>
-              <Typography variant="bodyLg" color="neutral.500" style={{marginBottom: 24}}>Cardiologist</Typography>
+              <Typography variant="bodyLg" color="neutral.500" style={{ marginBottom: 20 }}>General Physician</Typography>
 
-              <Typography variant="caption" color="neutral.500">Starting from</Typography>
-              <Typography variant="h3" color="neutral.900" style={{fontWeight: 'bold'}}>
-                ₹1200 <Typography variant="caption" color="neutral.500">/per session</Typography>
-              </Typography>
+              <View style={styles.heroPriceRow}>
+                <Typography variant="caption" color="neutral.500">Consultation Fee</Typography>
+                <Typography variant="h3" color="neutral.900" style={{ fontWeight: 'bold' }}>
+                  ₹600 <Typography variant="caption" color="neutral.500">/per session</Typography>
+                </Typography>
+              </View>
             </View>
 
             <View style={styles.doctorImageWrap}>
-              <Image 
-                source={{ uri: 'https://cdn-icons-png.flaticon.com/512/3774/3774299.png' }} 
-                style={styles.doctorImage} 
-                resizeMode="contain" 
+              <Image
+                source={{ uri: 'https://cdn-icons-png.flaticon.com/512/3774/3774299.png' }}
+                style={styles.doctorImage}
+                resizeMode="contain"
               />
             </View>
           </View>
@@ -147,73 +180,103 @@ export default function BookAppointment({ route, navigation }) {
           {/* Badges Row */}
           <View style={styles.badgesRow}>
             <View style={styles.badge}>
-              <Star size={14} color={theme.colors.neutral[900]} fill={theme.colors.neutral[900]} style={{marginRight: 6}} />
-              <Typography variant="caption" color="neutral.900" style={{fontWeight: 'bold'}}>4.8</Typography>
+              <Star size={14} color={theme.colors.neutral[900]} fill={theme.colors.neutral[900]} style={{ marginRight: 6 }} />
+              <Typography variant="caption" color="neutral.900" style={{ fontWeight: 'bold' }}>4.8</Typography>
             </View>
             <View style={styles.badge}>
-              <Calendar size={14} color={theme.colors.neutral[900]} style={{marginRight: 6}} />
-              <Typography variant="caption" color="neutral.900" style={{fontWeight: 'bold'}}>10+</Typography>
+              <Calendar size={14} color={theme.colors.neutral[900]} style={{ marginRight: 6 }} />
+              <Typography variant="caption" color="neutral.900" style={{ fontWeight: 'bold' }}>10+ Years</Typography>
             </View>
             <View style={styles.badge}>
-              <Users size={14} color={theme.colors.primary[500]} fill={theme.colors.primary[500]} style={{marginRight: 6}} />
-              <Typography variant="caption" color="neutral.900" style={{fontWeight: 'bold'}}>Patients Served: 120+</Typography>
+              <Users size={14} color={theme.colors.primary[500]} fill={theme.colors.primary[500]} style={{ marginRight: 6 }} />
+              <Typography variant="caption" color="primary.500" style={{ fontWeight: 'bold' }}>120+</Typography>
             </View>
           </View>
 
           {/* Availability Section */}
           <View style={styles.availabilitySection}>
-            <Typography variant="h3" color="neutral.900" style={{marginBottom: 16}}>
-              Today's{'\n'}Availability
+            <Typography variant="h3" color="neutral.900" style={{ marginBottom: 20 }}>
+              Booking Slots
             </Typography>
 
             {/* In-Clinic / Virtual Toggle */}
             <View style={styles.toggleContainer}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[styles.toggleBtn, visitType === 'in-clinic' && styles.toggleBtnActive]}
                 onPress={() => setVisitType('in-clinic')}
               >
-                <View style={styles.toggleDot} />
-                <Typography variant="bodyMd" color={visitType === 'in-clinic' ? 'neutral.0' : 'neutral.500'} style={{fontWeight: 'bold'}}>
+                <View style={[styles.toggleDot, { backgroundColor: theme.colors.success[500] }]} />
+                <Typography variant="bodyMd" color={visitType === 'in-clinic' ? 'neutral.0' : 'neutral.500'} style={{ fontWeight: 'bold' }}>
                   In-Clinic
                 </Typography>
               </TouchableOpacity>
-              
-              <TouchableOpacity 
+
+              <TouchableOpacity
                 style={[styles.toggleBtn, visitType === 'virtual' && styles.toggleBtnActive]}
                 onPress={() => setVisitType('virtual')}
               >
-                <View style={[styles.toggleDot, {backgroundColor: theme.colors.neutral[300]}]} />
-                <Typography variant="bodyMd" color={visitType === 'virtual' ? 'neutral.0' : 'neutral.500'} style={{fontWeight: 'bold'}}>
+                <View style={[styles.toggleDot, { backgroundColor: theme.colors.warning[500] }]} />
+                <Typography variant="bodyMd" color={visitType === 'virtual' ? 'neutral.0' : 'neutral.500'} style={{ fontWeight: 'bold' }}>
                   Virtual
                 </Typography>
               </TouchableOpacity>
             </View>
 
+            {/* Limit Reached Banner */}
+            {isLimitReached && (
+              <View style={styles.limitBanner}>
+                <Typography variant="bodyMd" color="error.500" style={{ fontWeight: 'bold' }}>
+                  Today's booking limit reached
+                </Typography>
+              </View>
+            )}
+
+            {isDoctorUnavailable && !isLimitReached && (
+              <View style={styles.limitBanner}>
+                <Typography variant="bodyMd" color="error.500" style={{ fontWeight: 'bold' }}>
+                  Doctor is not available today
+                </Typography>
+              </View>
+            )}
+
             {/* Time Grid */}
             {loading ? (
               <View style={styles.timeGrid}>
-                {[1,2,3,4,5,6].map(i => <SkeletonLoader key={i} width="30%" height={48} borderRadius={24} />)}
+                {[1, 2, 3, 4, 5, 6].map(i => <SkeletonLoader key={i} width="30%" height={48} borderRadius={24} />)}
               </View>
             ) : (
-              <View style={styles.timeGrid}>
-                {timeSlots.map(time => {
-                  const isSelected = selectedTime === time;
+              <View style={[styles.timeGrid, (isDoctorUnavailable || isLimitReached) && { opacity: 0.5 }]}>
+                {timeSlots.map(slot => {
+                  const isSelected = selectedTime === slot.time;
+                  const isBooked = slot.status === 'BOOKED';
+                  const isPast = slot.status === 'PAST';
+                  const isDisabled = isBooked || isPast || isDoctorUnavailable || isLimitReached;
+
                   return (
                     <TouchableOpacity
-                      key={time}
+                      key={slot.time}
                       style={[
                         styles.timePill,
-                        isSelected && styles.timePillSelected
+                        isSelected && styles.timePillSelected,
+                        isBooked && styles.timePillBooked,
+                        isPast && styles.timePillPast
                       ]}
-                      onPress={() => setSelectedTime(time)}
+                      onPress={() => !isDisabled && setSelectedTime(slot.time)}
+                      disabled={isDisabled}
+                      activeOpacity={0.7}
                     >
-                      <Typography 
-                        variant="caption" 
-                        color={isSelected ? 'neutral.0' : 'neutral.700'}
-                        style={{fontWeight: 'bold'}}
+                      <Typography
+                        variant="caption"
+                        color={isSelected ? 'neutral.0' : (isDisabled ? 'neutral.400' : 'neutral.700')}
+                        style={{ fontWeight: 'bold' }}
                       >
-                        {time}
+                        {slot.time}
                       </Typography>
+                      {isBooked && (
+                        <Typography variant="caption" color="neutral.400" style={{ fontSize: 8 }}>
+                          Booked
+                        </Typography>
+                      )}
                     </TouchableOpacity>
                   );
                 })}
@@ -221,21 +284,25 @@ export default function BookAppointment({ route, navigation }) {
             )}
           </View>
         </ScrollView>
-        
+
         {/* Fixed Footer */}
         <View style={styles.footer}>
-          <TouchableOpacity 
-            style={[styles.bookBtn, !selectedTime && {opacity: 0.5}]} 
+          <TouchableOpacity
+            style={[
+              styles.bookBtn,
+              (!selectedTime || submitting || isLimitReached || isDoctorUnavailable) && styles.bookBtnDisabled
+            ]}
             onPress={handleBook}
-            disabled={!selectedTime || submitting}
+            disabled={!selectedTime || submitting || isLimitReached || isDoctorUnavailable}
           >
-            <View style={{flex: 1}} />
-            <Typography variant="bodyMd" color="neutral.0" style={{fontWeight: 'bold', fontSize: 16}}>
-              {submitting ? 'Confirming...' : 'Booking...'}
+            <Typography variant="bodyLg" color={selectedTime ? 'neutral.0' : 'neutral.500'} style={{ fontWeight: 'bold', flex: 1, textAlign: 'center' }}>
+              {submitting ? 'Processing...' : (selectedTime ? 'Confirm Booking' : 'Select a Slot')}
             </Typography>
-            <View style={[styles.bookIconWrap, {marginLeft: 12}]}>
-              <ChevronRight size={20} color={theme.colors.primary[500]} />
-            </View>
+            {selectedTime && !submitting && (
+              <View style={styles.bookIconWrap}>
+                <ChevronRight size={20} color={theme.colors.primary[500]} />
+              </View>
+            )}
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -246,7 +313,7 @@ export default function BookAppointment({ route, navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.neutral[50], // fallback
+    backgroundColor: theme.colors.neutral[50],
   },
   header: {
     flexDirection: 'row',
@@ -263,10 +330,8 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.neutral[0],
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  headerRight: {
-    flexDirection: 'row',
-    gap: 12,
+    ...theme.shadow.card,
+    elevation: 2,
   },
   doctorInfoContainer: {
     flexDirection: 'row',
@@ -285,25 +350,32 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
     marginBottom: 16,
+    ...theme.shadow.card,
+    elevation: 1,
   },
   doctorName: {
     fontWeight: '700',
-    fontSize: 32,
-    lineHeight: 38,
+    fontSize: 28,
+    lineHeight: 34,
     marginBottom: 4,
+  },
+  heroPriceRow: {
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    padding: 12,
+    borderRadius: 16,
+    alignSelf: 'flex-start',
   },
   doctorImageWrap: {
     position: 'absolute',
-    right: -20,
-    top: -50,
-    width: 180,
-    height: 250,
+    right: -10,
+    top: -30,
+    width: 160,
+    height: 220,
     zIndex: 1,
   },
   doctorImage: {
     width: '100%',
     height: '100%',
-    opacity: 0.9,
   },
   badgesRow: {
     flexDirection: 'row',
@@ -330,6 +402,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingBottom: 24,
     flex: 1,
+    minHeight: 400,
   },
   toggleContainer: {
     flexDirection: 'row',
@@ -345,6 +418,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 12,
     borderRadius: 24,
+    gap: 8,
   },
   toggleBtnActive: {
     backgroundColor: theme.colors.primary[500],
@@ -354,48 +428,83 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: theme.colors.success[500],
+  },
+  limitBanner: {
+    backgroundColor: theme.colors.error[50],
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 16,
+    alignItems: 'center',
+  },
+  availabilityStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 24,
+    backgroundColor: theme.colors.neutral[50],
+    padding: 12,
+    borderRadius: 16,
+    alignSelf: 'flex-start',
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     marginRight: 8,
   },
   timeGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
-    justifyContent: 'space-between',
   },
   timePill: {
-    width: '31%',
-    height: 48,
+    width: '30%',
+    height: 54,
     backgroundColor: theme.colors.neutral[50],
-    borderRadius: 24,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.neutral[100],
   },
   timePillSelected: {
     backgroundColor: theme.colors.primary[500],
+    borderColor: theme.colors.primary[500],
+  },
+  timePillBooked: {
+    backgroundColor: theme.colors.neutral[100],
+    borderColor: theme.colors.neutral[100],
+    opacity: 0.6,
+  },
+  timePillPast: {
+    backgroundColor: theme.colors.neutral[50],
+    borderColor: theme.colors.neutral[100],
+    opacity: 0.4,
   },
   footer: {
     backgroundColor: theme.colors.neutral[0],
     paddingHorizontal: 24,
-    paddingTop: 8,
+    paddingTop: 12,
     paddingBottom: 24,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.neutral[100],
   },
   bookBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: theme.colors.primary[500],
-    height: 60,
-    borderRadius: 30,
-    paddingLeft: 24,
-    paddingRight: 8,
+    height: 56,
+    borderRadius: 28,
+    paddingHorizontal: 24,
+  },
+  bookBtnDisabled: {
+    backgroundColor: theme.colors.neutral[100],
   },
   bookIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: theme.colors.neutral[0],
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 'auto',
   }
 });
