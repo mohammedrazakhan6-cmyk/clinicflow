@@ -6,6 +6,7 @@ import { SkeletonLoader } from '../../components/SkeletonLoader';
 import { theme } from '../../styles/theme';
 import { supabase } from '../../api/supabase';
 import { ArrowLeft } from 'lucide-react-native';
+import { StatusPill } from '../../components/StatusPill';
 
 export default function Queue({ navigation }) {
   const [appointments, setAppointments] = useState([]);
@@ -119,7 +120,11 @@ export default function Queue({ navigation }) {
               <Typography variant="caption" color="neutral.700">{appt.time}</Typography>
             </View>
             <View>
-              {isInConsultation && <Typography variant="caption" color="warning.500">Serving</Typography>}
+              {isInConsultation ? (
+                <StatusPill status={appt.status} style={{paddingVertical: 2, paddingHorizontal: 6}} />
+              ) : (
+                <StatusPill status={appt.status} style={{paddingVertical: 2, paddingHorizontal: 6}} />
+              )}
             </View>
           </View>
         );

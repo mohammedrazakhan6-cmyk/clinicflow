@@ -6,6 +6,7 @@ import ManageSchedule from '../screens/admin/ManageSchedule';
 import AdjustQueue from '../screens/admin/AdjustQueue';
 import AdminAppointments from '../screens/admin/AdminAppointments';
 import AdminPatientDetails from '../screens/admin/AdminPatientDetails';
+import AdminProfile from '../screens/admin/AdminProfile';
 
 const Stack = createNativeStackNavigator();
 
@@ -18,6 +19,7 @@ export default function AdminStack() {
       <Stack.Screen name="AdjustQueue" component={AdjustQueue} />
       <Stack.Screen name="AdminAppointments" component={AdminAppointments} />
       <Stack.Screen name="AdminPatientDetails" component={AdminPatientDetails} />
+      <Stack.Screen name="AdminProfile" component={AdminProfile} />
     </Stack.Navigator>
   );
 }

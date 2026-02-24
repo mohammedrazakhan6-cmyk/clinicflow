@@ -1,47 +1,94 @@
-import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import { View, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Typography } from '../../components/Typography';
 import { Card } from '../../components/Card';
 import { SkeletonLoader } from '../../components/SkeletonLoader';
 import { theme } from '../../styles/theme';
 import { supabase } from '../../api/supabase';
-import { LogOut, Users, Settings, UserPlus, ListFilter, CalendarDays } from 'lucide-react-native';
+import { LogOut, Users, Settings, UserPlus, ListFilter, CalendarDays, LayoutGrid, User, Star } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { AdminBottomNav } from '../../components/AdminBottomNav';
+import { StatusPill } from '../../components/StatusPill';
 
 export default function AdminDashboard({ navigation }) {
   const [stats, setStats] = useState({ total: 0, waiting: 0, completed: 0, avgWait: 0 });
   const [appointmentsPreview, setAppointmentsPreview] = useState([]);
+  const [doctors, setDoctors] = useState([]);
+  const [doctorSettingsMap, setDoctorSettingsMap] = useState({});
+  const [selectedDoctor, setSelectedDoctor] = useState('all'); // 'all' or doctor_id
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchStats();
-    
-    const sub = supabase.channel('public:appointments')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, fetchStats)
-      .subscribe();
+  useFocusEffect(
+    useCallback(() => {
+      fetchStats(selectedDoctor);
       
-    return () => supabase.removeChannel(sub);
-  }, []);
+      const sub = supabase.channel('public:appointments')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, () => fetchStats(selectedDoctor))
+        .subscribe();
+        
+      return () => supabase.removeChannel(sub);
+    }, [selectedDoctor])
+  );
 
-  const fetchStats = async () => {
+  const fetchStats = async (currentDoctorId) => {
     try {
+      // 1. Fetch doctors for tabs if not already fetched
+      if (doctors.length === 0) {
+        const { data: docs } = await supabase.from('doctors').select('*');
+        if (docs) setDoctors(docs);
+      }
+
       const today = new Date().toISOString().split('T')[0];
-      const { data } = await supabase
+      let { data } = await supabase
         .from('appointments')
-        .select('id, status, queue_order, time, users (name)')
+        .select('id, status, queue_order, time, doctor_id, users (name), doctors (name)')
         .eq('date', today)
         .order('queue_order', { ascending: true });
       
       if (data) {
+        let filteredData = data;
+        if (currentDoctorId !== 'all') {
+          filteredData = data.filter(a => a.doctor_id === currentDoctorId);
+        }
+
+        const waitingAndConsulting = filteredData.filter(a => a.status === 'waiting' || a.status === 'in_consultation');
+
+        // Fetch exact slot setting arrays
+        const { data: settings } = await supabase.from('doctor_settings').select('*');
+        let settingsMap = {};
+        if (settings) {
+          settings.forEach(s => {
+             settingsMap[s.doctor_id] = s.slot_duration;
+          });
+          setDoctorSettingsMap(settings.reduce((acc, curr) => ({...acc, [curr.doctor_id]: curr}), {}));
+        }
+
+        // Calculate specialized wait time per doctor dynamically
+        let avgWait = 0;
+        if (currentDoctorId === 'all') {
+           // Average wait time based on all patients factored by respective doctor durations
+           let totalWait = 0;
+           waitingAndConsulting.forEach(a => {
+             totalWait += (settingsMap[a.doctor_id] || 15);
+           });
+           avgWait = waitingAndConsulting.length > 0 ? Math.round(totalWait / (doctors.length || 1)) : 0;
+        } else {
+           // Strict Queue Math: Wait ahead * specific doctor duration
+           const docDuration = settingsMap[currentDoctorId] || 15;
+           avgWait = waitingAndConsulting.length * docDuration; 
+        }
+
         setStats({
-          total: data.length,
-          waiting: data.filter(a => a.status === 'waiting' || a.status === 'in_consultation').length,
-          completed: data.filter(a => a.status === 'completed').length,
-          avgWait: data.filter(a => a.status === 'waiting').length * 15 // Rough estimate based on queue
+          total: filteredData.length,
+          waiting: waitingAndConsulting.length,
+          completed: filteredData.filter(a => a.status === 'completed').length,
+          avgWait: avgWait
         });
         
         // Take up to 4 upcoming for the list preview
-        const upcoming = data.filter(a => a.status === 'waiting' || a.status === 'in_consultation').slice(0, 4);
+        const upcoming = waitingAndConsulting.slice(0, 4);
         setAppointmentsPreview(upcoming);
       }
     } catch (e) {
@@ -51,8 +98,27 @@ export default function AdminDashboard({ navigation }) {
     }
   };
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
+  const getStatusDisplay = (settings) => {
+    if (!settings || !settings.is_available) {
+      return { label: 'Unavailable', style: styles.statusUnavailable, color: 'neutral.0' };
+    }
+    
+    // Check if within hours
+    const now = new Date();
+    const currTime = now.getHours() * 60 + now.getMinutes();
+    
+    if (settings.start_time && settings.end_time) {
+       const startParts = settings.start_time.split(':');
+       const endParts = settings.end_time.split(':');
+       const startMins = parseInt(startParts[0]) * 60 + parseInt(startParts[1]);
+       const endMins = parseInt(endParts[0]) * 60 + parseInt(endParts[1]);
+       
+       if (currTime < startMins || currTime > endMins) {
+         return { label: 'Break/Off-hours', style: styles.statusBreak, color: 'neutral.0' };
+       }
+    }
+    
+    return { label: 'Available', style: styles.statusAvailable, color: 'neutral.0' };
   };
 
   if (loading) {
@@ -68,15 +134,85 @@ export default function AdminDashboard({ navigation }) {
 
   return (
     <SafeAreaView style={styles.container}>
+      <LinearGradient 
+        colors={[theme.colors.primary[500], theme.colors.neutral[50], theme.colors.neutral[50]]} 
+        style={StyleSheet.absoluteFillObject}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 0.5 }}
+      />
       <ScrollView contentContainerStyle={{padding: theme.spacing[4]}}>
         
         <View style={styles.header}>
-          <Typography variant="h2" color="neutral.900">Admin Dashboard</Typography>
-          <View style={styles.dateBadge}>
-            <CalendarDays color={theme.colors.neutral[700]} size={16} style={{marginRight: 6}} />
-            <Typography variant="bodyMd" color="neutral.700" style={{fontWeight: '500'}}>Today</Typography>
-          </View>
+          <Typography variant="h2" color="neutral.0">Admin Dashboard</Typography>
         </View>
+
+        {/* Doctor Tabs */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsContainer} contentContainerStyle={{paddingRight: theme.spacing[4]}}>
+          {doctors.map(doc => (
+            <TouchableOpacity 
+              key={doc.id}
+              style={[styles.tab, selectedDoctor === doc.id && styles.tabActive]}
+              onPress={() => setSelectedDoctor(doc.id)}
+            >
+              <Typography variant="bodyMd" color={selectedDoctor === doc.id ? 'neutral.0' : 'neutral.700'} style={{fontWeight: '600'}}>
+                {doc.name}
+              </Typography>
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity 
+            style={[styles.tab, selectedDoctor === 'all' && styles.tabActive]}
+            onPress={() => setSelectedDoctor('all')}
+          >
+            <Typography variant="bodyMd" color={selectedDoctor === 'all' ? 'neutral.0' : 'neutral.700'} style={{fontWeight: '600'}}>
+              All Doctors
+            </Typography>
+          </TouchableOpacity>
+        </ScrollView>
+
+        {selectedDoctor !== 'all' && doctors.find(d => d.id === selectedDoctor) && (
+          <View style={styles.profileCard}>
+            <View style={{flexDirection: 'row', zIndex: 1}}>
+              <View style={{flex: 1, paddingRight: 80}}>
+                <View style={styles.profileHeader}>
+                  <View style={styles.idBadge}>
+                    <Typography variant="caption" color="neutral.700" style={{fontWeight: '600'}}>
+                      ID: {doctors.find(d => d.id === selectedDoctor).id.split('-')[1] || '0269784'}
+                    </Typography>
+                  </View>
+                </View>
+                
+                <Typography variant="h1" color="neutral.900" style={styles.doctorName}>
+                  {doctors.find(d => d.id === selectedDoctor).name}
+                </Typography>
+                <Typography variant="bodyLg" color="neutral.500" style={styles.specialty}>
+                  General Physician
+                </Typography>
+
+                <View style={styles.profileBadges}>
+                  <View style={[
+                      styles.statusBadge, 
+                      getStatusDisplay(doctorSettingsMap[selectedDoctor]).style
+                  ]}>
+                    <Typography variant="caption" color={getStatusDisplay(doctorSettingsMap[selectedDoctor]).color} style={{fontWeight: 'bold'}}>
+                      {getStatusDisplay(doctorSettingsMap[selectedDoctor]).label}
+                    </Typography>
+                  </View>
+                  <View style={styles.recordBadge}>
+                    <Users size={14} color={theme.colors.primary[600]} style={{marginRight: 6}} />
+                    <Typography variant="caption" color="neutral.900" style={{fontWeight: '700'}}>
+                      120+
+                    </Typography>
+                  </View>
+                </View>
+              </View>
+            </View>
+            <Image 
+              source={selectedDoctor === 'doc-1' ? require('../../../assets/doc1.png') : require('../../../assets/doc2.png')}
+              style={styles.doctorImage}
+              resizeMode="contain"
+            />
+          </View>
+        )}
 
         <View style={styles.grid}>
           <Card style={styles.statCard}>
@@ -115,7 +251,14 @@ export default function AdminDashboard({ navigation }) {
               </View>
               <View style={styles.listInfo}>
                 <Typography variant="bodyLg" color="neutral.900" style={{fontWeight: '600'}}>{appt.users?.name || 'Walk-in'}</Typography>
-                <Typography variant="bodyMd" color="neutral.500">{appt.status === 'in_consultation' ? 'Consulting' : 'Waiting'}</Typography>
+                <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 4}}>
+                  <StatusPill status={appt.status} style={{paddingVertical: 2, paddingHorizontal: 8}} />
+                  {selectedDoctor === 'all' && (
+                    <Typography variant="caption" color="neutral.500" style={{marginLeft: 6}}>
+                      • {appt.doctors?.name}
+                    </Typography>
+                  )}
+                </View>
               </View>
               <View style={styles.listMetrics}>
                 <Typography variant="bodyLg" color="neutral.900" style={{fontWeight: '600', textAlign: 'right'}}>#{appt.queue_order}</Typography>
@@ -133,38 +276,13 @@ export default function AdminDashboard({ navigation }) {
           )}
         </Card>
 
-        {/* Other Admin Actions */}
-        <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: theme.spacing[4], marginBottom: theme.spacing[4]}}>
-          <Typography variant="h3" color="neutral.900">Quick Actions</Typography>
-          <TouchableOpacity onPress={handleLogout}>
-             <Typography variant="bodyMd" color="error.500" style={{fontWeight: 'bold'}}>Log Out</Typography>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.actionGrid}>
-          <TouchableOpacity style={styles.actionItem} onPress={() => navigation.navigate('RegisterWalkIn')}>
-            <View style={styles.actionIconWrap}>
-              <UserPlus color={theme.colors.primary[500]} size={24} />
-            </View>
-            <Typography variant="bodyLg" color="neutral.900" style={{fontWeight: 'bold'}}>Register{'\n'}Walk-in</Typography>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.actionItem} onPress={() => navigation.navigate('AdjustQueue')}>
-            <View style={styles.actionIconWrap}>
-              <ListFilter color={theme.colors.accent[500]} size={24} />
-            </View>
-            <Typography variant="bodyLg" color="neutral.900" style={{fontWeight: 'bold'}}>Adjust{'\n'}Queue</Typography>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.actionItem} onPress={() => navigation.navigate('ManageSchedule')}>
-            <View style={styles.actionIconWrap}>
-              <Settings color={theme.colors.primary[500]} size={24} />
-            </View>
-            <Typography variant="bodyLg" color="neutral.900" style={{fontWeight: 'bold'}}>Doctor{'\n'}Settings</Typography>
-          </TouchableOpacity>
-        </View>
+        {/* Empty space at the bottom to allow scrolling past the floating nav */}
+        <View style={{height: 40}} />
 
       </ScrollView>
+
+      {/* Persistent Bottom Nav */}
+      <AdminBottomNav navigation={navigation} activeRoute="AdminDashboard" />
     </SafeAreaView>
   );
 }
@@ -178,16 +296,86 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: theme.spacing[4],
+  },
+  tabsContainer: {
+    flexDirection: 'row',
     marginBottom: theme.spacing[6],
   },
-  dateBadge: {
+  tab: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.neutral[100],
+    marginRight: theme.spacing[3],
+  },
+  tabActive: {
+    backgroundColor: theme.colors.primary[500],
+  },
+  profileCard: {
+    backgroundColor: '#E8F0F2', // Light frost blue matching reference
+    borderRadius: 24,
+    padding: theme.spacing[5],
+    marginBottom: theme.spacing[6],
+    marginTop: 10,
+    minHeight: 240,
+    overflow: 'hidden',
+  },
+  profileHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    justifyContent: 'flex-start',
+    marginBottom: theme.spacing[4],
+  },
+  idBadge: {
     backgroundColor: theme.colors.neutral[0],
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: theme.radius.full,
+  },
+  doctorName: {
+    fontSize: 32,
+    lineHeight: 38,
+    marginBottom: 4,
+  },
+  specialty: {
+    marginBottom: theme.spacing[6],
+  },
+  profileBadges: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  recordBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: theme.colors.neutral[0],
+    borderRadius: theme.radius.full,
     ...theme.shadow.card,
+  },
+  statusBadge: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: theme.radius.full,
+    ...theme.shadow.card,
+  },
+  statusAvailable: {
+    backgroundColor: theme.colors.success[500],
+  },
+  statusBreak: {
+    backgroundColor: theme.colors.warning[500],
+  },
+  statusUnavailable: {
+    backgroundColor: theme.colors.error[500],
+  },
+  doctorImage: {
+    position: 'absolute',
+    bottom: 0,
+    right: -10,
+    width: 180,
+    height: 240,
+    zIndex: 10,
   },
   grid: {
     flexDirection: 'row',
@@ -241,26 +429,5 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     marginBottom: theme.spacing[4],
-  },
-  actionGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 16,
-    justifyContent: 'space-between',
-    paddingBottom: 40,
-  },
-  actionItem: {
-    width: '47%',
-    backgroundColor: theme.colors.neutral[0],
-    borderRadius: 24,
-    padding: 20,
-    height: 140,
-    justifyContent: 'flex-end',
-    ...theme.shadow.card,
-  },
-  actionIconWrap: {
-    position: 'absolute',
-    top: 20,
-    right: 20,
   }
 });

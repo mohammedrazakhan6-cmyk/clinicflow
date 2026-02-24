@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { View, StyleSheet, FlatList, TouchableOpacity, Alert } from 'react-native';
 import { Typography } from '../../components/Typography';
 import { Card } from '../../components/Card';
@@ -7,14 +8,17 @@ import { SkeletonLoader } from '../../components/SkeletonLoader';
 import { theme } from '../../styles/theme';
 import { supabase } from '../../api/supabase';
 import { ArrowLeft, Clock, CheckCircle, XCircle } from 'lucide-react-native';
+import { StatusPill } from '../../components/StatusPill';
 
 export default function AdminAppointments({ navigation }) {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchAppointments();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      fetchAppointments();
+    }, [])
+  );
 
   const fetchAppointments = async () => {
     setLoading(true);
@@ -70,18 +74,7 @@ export default function AdminAppointments({ navigation }) {
     ]);
   };
 
-  const renderStatus = (status) => {
-    switch (status) {
-      case 'waiting': return { color: theme.colors.warning[500], text: 'Waiting In Clinic' };
-      case 'in_consultation': return { color: theme.colors.primary[500], text: 'In Consultation' };
-      case 'completed': return { color: theme.colors.success[500], text: 'Completed' };
-      case 'cancelled': return { color: theme.colors.error[500], text: 'Cancelled' };
-      default: return { color: theme.colors.neutral[500], text: 'Booked' };
-    }
-  };
-
   const renderItem = ({ item }) => {
-    const statusInfo = renderStatus(item.status);
     return (
       <TouchableOpacity 
         activeOpacity={0.8}
@@ -97,13 +90,11 @@ export default function AdminAppointments({ navigation }) {
                 {item.users?.phone || 'No phone'}
               </Typography>
             </View>
-            <View style={{ alignItems: 'flex-end' }}>
+            <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
               <Typography variant="h3" color="primary.500" style={{marginBottom: 4}}>
                 {item.time}
               </Typography>
-              <Typography variant="caption" color={statusInfo.color} style={{ fontWeight: 'bold' }}>
-                {statusInfo.text}
-              </Typography>
+              <StatusPill status={item.status} />
             </View>
           </View>
 
@@ -184,8 +175,6 @@ const styles = StyleSheet.create({
   },
   card: {
     marginBottom: theme.spacing[4],
-    borderLeftWidth: 4,
-    borderLeftColor: theme.colors.primary[500],
   },
   cardHeader: {
     flexDirection: 'row',

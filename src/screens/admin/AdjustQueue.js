@@ -1,33 +1,54 @@
-import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, TouchableOpacity, Alert } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import { View, StyleSheet, FlatList, TouchableOpacity, Alert, ScrollView } from 'react-native';
 import { Typography } from '../../components/Typography';
 import { Card } from '../../components/Card';
 import { SkeletonLoader } from '../../components/SkeletonLoader';
 import { theme } from '../../styles/theme';
 import { supabase } from '../../api/supabase';
 import { ArrowUp, ArrowDown, ArrowLeft } from 'lucide-react-native';
+import { AdminBottomNav } from '../../components/AdminBottomNav';
 
 export default function AdjustQueue({ navigation }) {
   const [appointments, setAppointments] = useState([]);
+  const [doctors, setDoctors] = useState([]);
+  const [selectedDoctor, setSelectedDoctor] = useState('doc-1');
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchQueue();
-    // For simplicity, omitting realtime subscription here to prevent shifting while adjusting
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      fetchQueue(selectedDoctor);
+    }, [selectedDoctor])
+  );
 
-  const fetchQueue = async () => {
+  const fetchQueue = async (doctorId) => {
     setLoading(true);
     try {
+      if (doctors.length === 0) {
+        const { data: docs } = await supabase.from('doctors').select('*');
+        if (docs) {
+          setDoctors(docs);
+          if (!doctorId && docs.length > 0) {
+            setSelectedDoctor(docs[0].id);
+            doctorId = docs[0].id;
+          }
+        }
+      }
+
+      if (!doctorId) return;
+
       const today = new Date().toISOString().split('T')[0];
       const { data } = await supabase
         .from('appointments')
-        .select(`id, queue_order, status, time, users (name)`)
+        .select(`id, queue_order, status, time, doctor_id, users (name)`)
         .eq('date', today)
         .in('status', ['waiting', 'in_consultation'])
         .order('queue_order', { ascending: true });
       
-      setAppointments(data || []);
+      let queueData = data || [];
+      queueData = queueData.filter(a => a.doctor_id === doctorId);
+
+      setAppointments(queueData);
     } catch (e) {
       console.log('Error fetching queue:', e);
     } finally {
@@ -109,18 +130,39 @@ export default function AdjustQueue({ navigation }) {
 
   return (
     <View style={[styles.container, {paddingTop: 60}]}>
-      <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing[6]}}>
+      <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing[4]}}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={{marginRight: 16}}>
           <ArrowLeft size={24} color={theme.colors.neutral[900]} />
         </TouchableOpacity>
         <Typography variant="h2" color="neutral.900">Adjust Queue</Typography>
       </View>
+
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsContainer} contentContainerStyle={{paddingRight: theme.spacing[4]}}>
+        {doctors.map(doc => (
+          <TouchableOpacity 
+            key={doc.id}
+            style={[styles.tab, selectedDoctor === doc.id && styles.tabActive]}
+            onPress={() => setSelectedDoctor(doc.id)}
+          >
+            <Typography variant="bodyMd" color={selectedDoctor === doc.id ? 'neutral.0' : 'neutral.700'} style={{fontWeight: '600'}}>
+              {doc.name}
+            </Typography>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {appointments.length === 0 && !loading && (
+        <Typography variant="bodyMd" color="neutral.500" style={{textAlign: 'center', marginTop: 40}}>
+          No queue for this doctor.
+        </Typography>
+      )}
       <FlatList
         data={appointments}
         keyExtractor={item => item.id.toString()}
         renderItem={renderItem}
-        contentContainerStyle={{paddingBottom: 20}}
+        contentContainerStyle={{paddingBottom: 100}}
       />
+      <AdminBottomNav navigation={navigation} activeRoute="AdjustQueue" />
     </View>
   );
 }
@@ -133,6 +175,22 @@ const styles = StyleSheet.create({
   },
   title: {
     marginBottom: theme.spacing[6],
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    marginBottom: theme.spacing[6],
+    maxHeight: 40,
+    minHeight: 40,
+  },
+  tab: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.neutral[100],
+    marginRight: theme.spacing[3],
+  },
+  tabActive: {
+    backgroundColor: theme.colors.primary[500],
   },
   card: {
     flexDirection: 'row',
