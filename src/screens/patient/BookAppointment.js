@@ -47,6 +47,10 @@ const generateTimeSlots = (start, end, durationMins, bookedSlots, isToday) => {
 export default function BookAppointment({ route, navigation }) {
   const doctorId = route.params?.doctorId;
 
+  const today = new Date().toISOString().split('T')[0];
+  const tomorrow = new Date(new Date().setDate(new Date().getDate() + 1)).toISOString().split('T')[0];
+
+  const [selectedDate, setSelectedDate] = useState(today);
   const [selectedTime, setSelectedTime] = useState(null);
   const [visitType, setVisitType] = useState('in-clinic');
   const [loading, setLoading] = useState(true);
@@ -55,8 +59,6 @@ export default function BookAppointment({ route, navigation }) {
   const [appointments, setAppointments] = useState([]);
   const [bookedSlots, setBookedSlots] = useState([]);
 
-  const today = new Date().toISOString().split('T')[0];
-
   useEffect(() => {
     fetchSettingsAndSlots();
 
@@ -64,31 +66,47 @@ export default function BookAppointment({ route, navigation }) {
     const sub = supabase
       .channel('appointments-updates')
       .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'appointments', filter: `date=eq.${today}` },
+        { event: '*', schema: 'public', table: 'appointments', filter: `date=eq.${selectedDate}` },
         fetchSettingsAndSlots
       )
       .subscribe();
 
     return () => supabase.removeChannel(sub);
-  }, []);
+  }, [selectedDate]);
 
   const fetchSettingsAndSlots = async () => {
     setLoading(true);
     try {
-      // Get Doctor Settings
+      // Get Doctor Details and Settings
+      const { data: doctorData } = await supabase
+        .from('users')
+        .select('name, role')
+        .eq('id', doctorId)
+        .single();
+
       const { data: docSettings } = await supabase.from('doctor_settings').select('*').limit(1).single();
       const s = docSettings || { start_time: '09:00', end_time: '17:00', slot_duration: 30, is_available: true, max_patients: 20 };
-      setSettings(s);
 
-      // Get Today's Appointments
+      setSettings({ ...s, doctor: doctorData });
+
+      // Get Appointments for this doctor on selected date
       const { data: appointmentsData } = await supabase
         .from('appointments')
         .select('time, status')
-        .eq('date', today)
+        .eq('date', selectedDate)
+        .eq('doctor_id', doctorId)
         .not('status', 'eq', 'cancelled');
 
       setAppointments(appointmentsData || []);
-      const booked = appointmentsData ? appointmentsData.map(a => a.time) : [];
+
+      // Map database TIME (HH:MM:SS) to UI format (HH:MM AM/PM) for matching
+      const booked = (appointmentsData || []).map(a => {
+        const [h, m] = a.time.split(':');
+        const hour = parseInt(h);
+        const period = hour >= 12 ? 'PM' : 'AM';
+        const displayH = hour > 12 ? hour - 12 : (hour === 0 ? 12 : hour);
+        return `${String(displayH).padStart(2, '0')}:${String(m).padStart(2, '0')} ${period}`;
+      });
       setBookedSlots(booked);
 
     } catch (e) {
@@ -104,20 +122,46 @@ export default function BookAppointment({ route, navigation }) {
     setSubmitting(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      const queueOrder = (appointments?.length || 0) + 1;
+      if (!user) throw new Error('User not authenticated');
 
+      // 1. Fetch max queue_order and token_number FOR THIS DOCTOR and DATE
+      const { data: maxData, error: maxError } = await supabase
+        .from('appointments')
+        .select('queue_order, token_number')
+        .eq('date', selectedDate)
+        .eq('doctor_id', doctorId)
+        .order('queue_order', { ascending: false })
+        .limit(1);
+
+      if (maxError) throw maxError;
+
+      const lastQueueOrder = maxData && maxData.length > 0 ? maxData[0].queue_order : 0;
+      const lastTokenNumber = maxData && maxData.length > 0 ? maxData[0].token_number : 0;
+
+      const queue_order = lastQueueOrder + 1;
+      const token_number = lastTokenNumber + 1;
+
+      // 2. Convert AM/PM time to 24h ISO for DB
+      let [time, period] = selectedTime.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (period === 'PM' && h < 12) h += 12;
+      if (period === 'AM' && h === 12) h = 0;
+      const dbTime = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
+
+      // 3. Insert into appointments
       const { error } = await supabase.from('appointments').insert([{
-        patient_id: user.id || 'mock',
-        date: today,
-        time: selectedTime,
+        patient_id: user.id,
+        doctor_id: doctorId,
+        date: selectedDate,
+        time: dbTime,
         status: 'waiting',
-        queue_order: queueOrder,
-        token_number: queueOrder
+        queue_order,
+        token: token_number
       }]);
 
       if (error) throw error;
 
-      Alert.alert('Success', 'Your appointment has been booked!', [
+      Alert.alert('Success', `Your appointment has been booked! Your Token Number is ${token_number}`, [
         { text: 'OK', onPress: () => navigation.navigate('PatientHome') }
       ]);
     } catch (e) {
@@ -129,7 +173,7 @@ export default function BookAppointment({ route, navigation }) {
 
   const isLimitReached = settings && appointments.length >= settings.max_patients;
   const isDoctorUnavailable = settings && !settings.is_available;
-  const timeSlots = settings ? generateTimeSlots(settings.start_time, settings.end_time, settings.slot_duration, bookedSlots, true) : [];
+  const timeSlots = settings ? generateTimeSlots(settings.start_time, settings.end_time, settings.slot_duration, bookedSlots, selectedDate === today) : [];
 
   return (
     <View style={styles.container}>
@@ -153,17 +197,17 @@ export default function BookAppointment({ route, navigation }) {
           <View style={styles.doctorInfoContainer}>
             <View style={styles.doctorTextContent}>
               <View style={styles.idBadge}>
-                <Typography variant="caption" color="neutral.500" style={{ fontWeight: 'bold' }}>ID: 0269784</Typography>
+                <Typography variant="caption" color="neutral.500" style={{ fontWeight: 'bold' }}>ID: {doctorId?.substring(0, 8) || '0269784'}</Typography>
               </View>
               <Typography variant="h1" color="neutral.900" style={styles.doctorName}>
-                Dr. Rajesh Sharma
+                {settings?.doctor?.name || 'Dr. Rajesh Sharma'}
               </Typography>
-              <Typography variant="bodyLg" color="neutral.500" style={{ marginBottom: 20 }}>General Physician</Typography>
+              <Typography variant="bodyLg" color="neutral.500" style={{ marginBottom: 20 }}>{settings?.doctor?.role || 'General Physician'}</Typography>
 
               <View style={styles.heroPriceRow}>
                 <Typography variant="caption" color="neutral.500">Consultation Fee</Typography>
                 <Typography variant="h3" color="neutral.900" style={{ fontWeight: 'bold' }}>
-                  ₹600 <Typography variant="caption" color="neutral.500">/per session</Typography>
+                  ₹1000 <Typography variant="caption" color="neutral.500">/per session</Typography>
                 </Typography>
               </View>
             </View>
@@ -198,6 +242,27 @@ export default function BookAppointment({ route, navigation }) {
             <Typography variant="h3" color="neutral.900" style={{ marginBottom: 20 }}>
               Booking Slots
             </Typography>
+
+            {/* Date Selection */}
+            <View style={[styles.toggleContainer, { marginBottom: 16 }]}>
+              <TouchableOpacity
+                style={[styles.toggleBtn, selectedDate === today && styles.toggleBtnActive]}
+                onPress={() => { setSelectedDate(today); setSelectedTime(null); }}
+              >
+                <Typography variant="bodyMd" color={selectedDate === today ? 'neutral.0' : 'neutral.500'} style={{ fontWeight: 'bold' }}>
+                  Today
+                </Typography>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.toggleBtn, selectedDate === tomorrow && styles.toggleBtnActive]}
+                onPress={() => { setSelectedDate(tomorrow); setSelectedTime(null); }}
+              >
+                <Typography variant="bodyMd" color={selectedDate === tomorrow ? 'neutral.0' : 'neutral.500'} style={{ fontWeight: 'bold' }}>
+                  Tomorrow
+                </Typography>
+              </TouchableOpacity>
+            </View>
 
             {/* In-Clinic / Virtual Toggle */}
             <View style={styles.toggleContainer}>

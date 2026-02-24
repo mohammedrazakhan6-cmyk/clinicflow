@@ -11,6 +11,15 @@ import { theme } from '../../styles/theme';
 import { supabase } from '../../api/supabase';
 import { ChevronRight, MoreVertical, Dot } from 'lucide-react-native';
 
+const formatTime = (timeStr) => {
+  if (!timeStr) return 'N/A';
+  const [h, m] = timeStr.split(':');
+  let hour = parseInt(h);
+  const period = hour >= 12 ? 'PM' : 'AM';
+  hour = hour % 12 || 12;
+  return `${String(hour).padStart(2, '0')}:${m} ${period}`;
+};
+
 export default function DoctorHome({ navigation }) {
   const [stats, setStats] = useState({ total: 0, waiting: 0, consulting: 0, completed: 0 });
   const [nextPatient, setNextPatient] = useState(null);
@@ -23,63 +32,125 @@ export default function DoctorHome({ navigation }) {
   const [modalVisible, setModalVisible] = useState(false);
   const [modalConfig, setModalConfig] = useState({});
 
+  const [profile, setProfile] = useState(null);
+
   useEffect(() => {
-    // Mocking initial data fetch
-    setStats({
-      total: 12,
-      waiting: 4,
-      consulting: 1,
-      completed: 7,
-    });
-
-    setNextPatient({
-      id: '1',
-      token_number: 105,
-      appointment_time: '10:30 AM',
-      status: 'waiting',
-      patients: { full_name: 'Amara Walker' }
-    });
-
-    setAppointments([
-      { id: '1', token_number: 105, appointment_time: '10:30 AM', status: 'waiting', patients: { full_name: 'Amara Walker' } },
-      { id: '2', token_number: 106, appointment_time: '11:00 AM', status: 'waiting', patients: { full_name: 'James Cooper' } },
-      { id: '3', token_number: 107, appointment_time: '11:30 AM', status: 'completed', patients: { full_name: 'Elena Rodriguez' } },
-    ]);
-
-    setLoading(false);
-    setRealtimeConnected(true); // Faking connection for UI
-
-    // Commenting out Supabase logic for now
-    /*
     fetchInitialData();
     setupSubscriptions();
-    
+
     return () => {
       supabase.channel('doctor-dashboard').unsubscribe();
     };
-    */
   }, []);
 
   const fetchInitialData = async () => {
-    // Bypassing for mock
+    setLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      // Fetch Profile
+      const { data: profileData } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+      setProfile(profileData);
+
+      // Fetch Today's Appointments
+      const today = new Date().toISOString().split('T')[0];
+      const { data: appts, error: apptsError } = await supabase
+        .from('appointments')
+        .select(`
+  id,
+  token,
+  status,
+  time,
+  patient_id,
+  walk_in_id,
+  users!appointments_patient_id_fkey (name),
+  walk_ins!appointments_walk_in_id_fkey (name)
+`)
+        .gte('date', today)
+        .eq('doctor_id', user.id)
+        .order('queue_order', { ascending: true });
+
+      if (apptsError) throw apptsError;
+
+      const transformedAppts = (appts || []).map(a => ({
+        id: a.id,
+        token_number: a.token,   // 👈 FIX
+        appointment_time: formatTime(a.time),
+        status: a.status,
+        patients: { full_name: a.users?.name || a.walk_ins?.name || 'Unknown' }
+      }));
+
+      setAppointments(transformedAppts);
+
+      // Calculate Stats
+      const stats = {
+        total: transformedAppts.length,
+        waiting: transformedAppts.filter(a => a.status === 'waiting').length,
+        consulting: transformedAppts.filter(a => a.status === 'in_consultation').length,
+        completed: transformedAppts.filter(a => a.status === 'completed').length,
+      };
+      setStats(stats);
+
+      // Next Patient
+      const next = transformedAppts.find(a => a.status === 'waiting');
+      setNextPatient(next || null);
+
+      // Fetch Availability
+      const { data: settings } = await supabase.from('doctor_settings').select('is_available').limit(1).single();
+      setAvailability(settings?.is_available ? 'available' : 'unavailable');
+
+    } catch (e) {
+      console.error('Error fetching dashboard data:', e);
+      Alert.alert('Error', 'Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const setupSubscriptions = () => {
-    // Bypassing for mock
+    const today = new Date().toISOString().split('T')[0];
+    supabase
+      .channel('doctor-dashboard')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'appointments', filter: `date=eq.${today}` },
+        () => fetchInitialData()
+      )
+      .subscribe();
+    setRealtimeConnected(true);
   };
 
-  const handleUpdateStatus = (appointmentId, newStatus) => {
-    // Mock local state update
-    setAppointments(prev => prev.map(a => a.id === appointmentId ? { ...a, status: newStatus } : a));
-    if (nextPatient && nextPatient.id === appointmentId) {
-      setNextPatient(prev => ({ ...prev, status: newStatus }));
+  const handleUpdateStatus = async (appointmentId, newStatus) => {
+    try {
+      const { error } = await supabase
+        .from('appointments')
+        .update({ status: newStatus })
+        .eq('id', appointmentId);
+
+      if (error) throw error;
+      fetchInitialData(); // Refresh via polling fallback or wait for realtime
+    } catch (e) {
+      Alert.alert('Error', e.message);
     }
-    // Update stats based on mock change if needed
   };
 
-  const updateAvailability = (status) => {
+  const updateAvailability = async (status) => {
     setAvailability(status);
-    // Bypassing Supabase for mock
+    try {
+      const isAvailable = status === 'available';
+      const { error } = await supabase
+        .from('doctor_settings')
+        .update({ is_available: isAvailable })
+        .limit(1); // Assuming single row settings for demo as per prompt
+
+      if (error) throw error;
+    } catch (e) {
+      console.error('Error updating availability:', e);
+    }
   };
 
   const showConfirm = (config) => {
@@ -114,12 +185,12 @@ export default function DoctorHome({ navigation }) {
 
         <View style={styles.topHeader}>
           <HeroSection
-            doctorName="Dr. Rajesh Sharma"
-            specialty="Senior Neurologist"
-            price="1.2k"
+            doctorName={profile?.name || "Dr. Rajesh Sharma"}
+            specialty={profile?.role || "Senior Neurologist"}
+            price="1k"
             rating="4.8"
-            experience="15"
-            patientsServed="500"
+            experience="10"
+            patientsServed="120"
             navigation={navigation}
             onLogout={() => {
               Alert.alert('Logout', 'Are you sure you want to logout?', [
@@ -208,21 +279,23 @@ export default function DoctorHome({ navigation }) {
               <View style={styles.priorityHeader}>
                 <View style={styles.tokenBadge}>
                   <Typography variant="caption" color="neutral.500" style={{ fontWeight: '600' }}>TOKEN</Typography>
-                  <Typography style={styles.tokenNumber}>#{nextPatient.token_number}</Typography>
+                  <Typography style={styles.tokenNumber}>#{nextPatient.token_number || nextPatient.queue_order}</Typography>
                 </View>
                 <StatusBadge status={nextPatient.status} />
               </View>
 
               <View style={styles.patientInfoContainer}>
                 <Typography style={styles.patientName}>{nextPatient.patients.full_name}</Typography>
-                <Typography variant="bodyMd" color="neutral.500">{nextPatient.appointment_time} • Scheduled</Typography>
+                <Typography variant="bodyMd" color="neutral.500">{nextPatient.appointment_time} • {nextPatient.walk_ins ? 'Walk-in' : 'Scheduled'}</Typography>
               </View>
 
               <TouchableOpacity
                 style={styles.primaryAction}
-                onPress={() => handleUpdateStatus(nextPatient.id, 'in_consultation')}
+                onPress={() => handleUpdateStatus(nextPatient.id, nextPatient.status === 'waiting' ? 'in_consultation' : 'completed')}
               >
-                <Typography variant="button" color="neutral.0">Start Consultation</Typography>
+                <Typography variant="button" color="neutral.0">
+                  {nextPatient.status === 'waiting' ? 'Start Consultation' : 'Mark Completed'}
+                </Typography>
               </TouchableOpacity>
             </Card>
           ) : (
@@ -246,7 +319,7 @@ export default function DoctorHome({ navigation }) {
                 <TouchableOpacity key={item.id} style={[styles.listItem, index === appointments.length - 1 && { borderBottomWidth: 0 }]}>
                   <View style={styles.listItemMain}>
                     <Typography style={styles.listItemName}>{item.patients.full_name}</Typography>
-                    <Typography variant="caption" color="neutral.500">{item.appointment_time}</Typography>
+                    <Typography variant="caption" color="neutral.500">{item.appointment_time} • {item.walk_ins ? 'Walk-in' : 'Scheduled'}</Typography>
                   </View>
                   <View style={styles.listItemRight}>
                     <StatusBadge status={item.status} />

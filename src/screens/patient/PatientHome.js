@@ -30,7 +30,7 @@ export default function PatientHome({ navigation }) {
       setProfile(profileData);
 
       const { data: apptData } = await supabase.from('appointments')
-        .select('*')
+        .select('*, doctor:users!doctor_id(name)')
         .eq('patient_id', user.id)
         .in('status', ['waiting', 'in_consultation'])
         .order('date', { ascending: true })
@@ -106,9 +106,9 @@ export default function PatientHome({ navigation }) {
                     <View style={styles.doctorAvatar} />
                     <View style={{ flex: 1, marginLeft: 12 }}>
                       <Typography variant="bodyLg" color="neutral.900" style={{ fontWeight: 'bold' }}>
-                        Ronald Richards
+                        {appointment.doctor?.name || 'Clinic Flow Doctor'}
                       </Typography>
-                      <Typography variant="caption" color="neutral.500">Neurologist</Typography>
+                      <Typography variant="caption" color="neutral.500">General Specialist</Typography>
                     </View>
                     <View style={styles.videoIconContainer}>
                       <Video size={18} color={theme.colors.primary[500]} />

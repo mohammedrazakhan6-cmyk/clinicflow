@@ -1,33 +1,59 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, Alert } from 'react-native';
+import { View, StyleSheet, Alert, TouchableOpacity } from 'react-native';
 import { Typography } from '../../components/Typography';
 import { Button } from '../../components/Button';
 import { Input } from '../../components/Input';
 import { theme } from '../../styles/theme';
 import { supabase } from '../../api/supabase';
+import { Building2, Stethoscope, User } from 'lucide-react-native';
 
 export default function Login({ navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [selectedRole, setSelectedRole] = useState('patient');
 
-  const [role, setRole] = useState('patient');
+  const ROLE_CONFIG = [
+    { id: 'patient', label: 'Patient', icon: User, color: theme.colors.primary[500] },
+    { id: 'doctor', label: 'Doctor', icon: Stethoscope, color: theme.colors.accent[500] },
+    { id: 'admin', label: 'Admin', icon: Building2, color: theme.colors.warning[500] },
+  ];
 
   const handleLogin = async () => {
-    // Determine mock email based on selected role
-    let mockEmail = 'patient@demo.com';
-    if (role === 'doctor') mockEmail = 'doctor@demo.com';
-    if (role === 'admin') mockEmail = 'admin@demo.com';
+    if (!email || !password) {
+      Alert.alert('Error', 'Please enter email and password');
+      return;
+    }
 
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ 
-      email: mockEmail, 
-      password: 'password123' 
-    });
-    setLoading(false);
-    
-    if (error) {
+    try {
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+
+      if (authError) throw authError;
+
+      // Validate user role
+      if (authData?.user) {
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('role')
+          .eq('id', authData.user.id)
+          .single();
+
+        if (userError) throw userError;
+
+        if (userData.role !== selectedRole) {
+          // Role mismatch: sign out immediately
+          await supabase.auth.signOut();
+          throw new Error(`Selected role (${selectedRole}) does not match your account role (${userData.role})`);
+        }
+      }
+    } catch (error) {
       Alert.alert('Login Failed', error.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -36,40 +62,67 @@ export default function Login({ navigation }) {
       <Typography variant="h1" color="neutral.900" style={styles.title}>
         Welcome Back
       </Typography>
-      
-      <Typography variant="bodyLg" color="neutral.500" style={{ marginBottom: 32 }}>
-        Select your role to explore the different interfaces of Qlinic.
+      <Typography variant="bodyMd" color="neutral.500" style={{ marginBottom: 32 }}>
+        Select your role and log in to your account
       </Typography>
 
-      {/* Role Selector */}
       <View style={styles.roleContainer}>
-        <Typography variant="bodyMd" style={{marginBottom: 12, fontWeight: 'bold'}}>Role (Demo ONLY):</Typography>
-        <View style={styles.roleButtonGroup}>
-          {['patient', 'doctor', 'admin'].map((r) => (
-            <Button
-              key={r}
-              title={r.charAt(0).toUpperCase() + r.slice(1)}
-              variant={role === r ? 'primary' : 'secondary'}
-              onPress={() => setRole(r)}
-              style={styles.roleButton}
-              textStyle={{fontSize: 14}}
-            />
-          ))}
-        </View>
+        {ROLE_CONFIG.map((role) => {
+          const Icon = role.icon;
+          const isSelected = selectedRole === role.id;
+          return (
+            <TouchableOpacity
+              key={role.id}
+              activeOpacity={0.7}
+              style={[
+                styles.roleCard,
+                isSelected && { borderColor: role.color, backgroundColor: `${role.color}10` }
+              ]}
+              onPress={() => setSelectedRole(role.id)}
+            >
+              <View style={[styles.iconBox, { backgroundColor: isSelected ? role.color : theme.colors.neutral[100] }]}>
+                <Icon size={20} color={isSelected ? '#fff' : theme.colors.neutral[500]} />
+              </View>
+              <Typography
+                variant="bodyMd"
+                style={{ fontWeight: '600', color: isSelected ? theme.colors.neutral[900] : theme.colors.neutral[500] }}
+              >
+                {role.label}
+              </Typography>
+            </TouchableOpacity>
+          );
+        })}
       </View>
-      
-      <Button 
-        title="Login" 
+
+      <Input
+        label="Email Address"
+        placeholder="Enter your email"
+        value={email}
+        onChangeText={setEmail}
+        autoCapitalize="none"
+        keyboardType="email-address"
+      />
+
+      <Input
+        label="Password"
+        placeholder="Enter your password"
+        value={password}
+        onChangeText={setPassword}
+        secureTextEntry
+      />
+
+      <Button
+        title="Login"
         size="lg"
-        onPress={handleLogin} 
+        onPress={handleLogin}
         loading={loading}
         style={styles.button}
       />
-      
-      <Button 
-        title="Don't have an account? Register" 
+
+      <Button
+        title="Don't have an account? Register"
         variant="text"
-        onPress={() => navigation.navigate('Register')} 
+        onPress={() => navigation.navigate('Register')}
       />
     </View>
   );
@@ -83,19 +136,31 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   title: {
-    marginBottom: theme.spacing[2],
+    marginBottom: theme.spacing[1],
   },
   roleContainer: {
+    flexDirection: 'row',
+    gap: theme.spacing[3],
     marginBottom: theme.spacing[8],
   },
-  roleButtonGroup: {
-    flexDirection: 'row',
-    gap: theme.spacing[2],
-  },
-  roleButton: {
+  roleCard: {
     flex: 1,
-    height: 48,
-    paddingHorizontal: 0,
+    padding: theme.spacing[4],
+    borderRadius: theme.radius.xl,
+    backgroundColor: theme.colors.neutral[50],
+    borderWidth: 2,
+    borderColor: 'transparent',
+    alignItems: 'center',
+    gap: theme.spacing[2],
+    ...theme.shadow.sm,
+  },
+  iconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: theme.radius.lg,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 4,
   },
   button: {
     marginTop: theme.spacing[4],

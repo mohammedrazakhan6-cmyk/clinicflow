@@ -23,11 +23,11 @@ export default function AdminDashboard({ navigation }) {
   useFocusEffect(
     useCallback(() => {
       fetchStats(selectedDoctor);
-      
+
       const sub = supabase.channel('public:appointments')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, () => fetchStats(selectedDoctor))
         .subscribe();
-        
+
       return () => supabase.removeChannel(sub);
     }, [selectedDoctor])
   );
@@ -36,60 +36,61 @@ export default function AdminDashboard({ navigation }) {
     try {
       // 1. Fetch doctors for tabs if not already fetched
       if (doctors.length === 0) {
-        const { data: docs } = await supabase.from('doctors').select('*');
+        const { data: docs } = await supabase.from('users').select('*').eq('role', 'doctor');
         if (docs) setDoctors(docs);
       }
 
       const today = new Date().toISOString().split('T')[0];
-      let { data } = await supabase
+
+      // 2. Fetch Aggregated Metrics
+      let totalQuery = supabase.from('appointments').select('*', { count: 'exact', head: true }).eq('date', today);
+      let waitingQuery = supabase.from('appointments').select('*', { count: 'exact', head: true }).eq('date', today).in('status', ['waiting', 'in_consultation']);
+      let completedQuery = supabase.from('appointments').select('*', { count: 'exact', head: true }).eq('date', today).eq('status', 'completed');
+
+      if (currentDoctorId !== 'all') {
+        totalQuery = totalQuery.eq('doctor_id', currentDoctorId);
+        waitingQuery = waitingQuery.eq('doctor_id', currentDoctorId);
+        completedQuery = completedQuery.eq('doctor_id', currentDoctorId);
+      }
+
+      const { count: total } = await totalQuery;
+      const { count: waiting } = await waitingQuery;
+      const { count: completed } = await completedQuery;
+
+      // 3. Fetch Preview List
+      let previewQuery = supabase
         .from('appointments')
-        .select('id, status, queue_order, time, doctor_id, users (name), doctors (name)')
+        .select(`
+          id, status, queue_order, time, token_number, patient_id, walk_in_id,
+          users (name),
+          walk_ins (name)
+        `)
         .eq('date', today)
-        .order('queue_order', { ascending: true });
-      
-      if (data) {
-        let filteredData = data;
-        if (currentDoctorId !== 'all') {
-          filteredData = data.filter(a => a.doctor_id === currentDoctorId);
-        }
+        .in('status', ['waiting', 'in_consultation'])
+        .order('queue_order', { ascending: true })
+        .limit(4);
 
-        const waitingAndConsulting = filteredData.filter(a => a.status === 'waiting' || a.status === 'in_consultation');
+      if (currentDoctorId !== 'all') {
+        previewQuery = previewQuery.eq('doctor_id', currentDoctorId);
+      }
 
-        // Fetch exact slot setting arrays
-        const { data: settings } = await supabase.from('doctor_settings').select('*');
-        let settingsMap = {};
-        if (settings) {
-          settings.forEach(s => {
-             settingsMap[s.doctor_id] = s.slot_duration;
-          });
-          setDoctorSettingsMap(settings.reduce((acc, curr) => ({...acc, [curr.doctor_id]: curr}), {}));
-        }
+      const { data: apptsPreview } = await previewQuery;
 
-        // Calculate specialized wait time per doctor dynamically
-        let avgWait = 0;
-        if (currentDoctorId === 'all') {
-           // Average wait time based on all patients factored by respective doctor durations
-           let totalWait = 0;
-           waitingAndConsulting.forEach(a => {
-             totalWait += (settingsMap[a.doctor_id] || 15);
-           });
-           avgWait = waitingAndConsulting.length > 0 ? Math.round(totalWait / (doctors.length || 1)) : 0;
-        } else {
-           // Strict Queue Math: Wait ahead * specific doctor duration
-           const docDuration = settingsMap[currentDoctorId] || 15;
-           avgWait = waitingAndConsulting.length * docDuration; 
-        }
+      setAppointmentsPreview(apptsPreview || []);
 
-        setStats({
-          total: filteredData.length,
-          waiting: waitingAndConsulting.length,
-          completed: filteredData.filter(a => a.status === 'completed').length,
-          avgWait: avgWait
-        });
-        
-        // Take up to 4 upcoming for the list preview
-        const upcoming = waitingAndConsulting.slice(0, 4);
-        setAppointmentsPreview(upcoming);
+      // 4. Fetch Doctor Settings
+      const { data: settings } = await supabase.from('doctor_settings').select('*').limit(1).single();
+      const slotDuration = settings?.slot_duration || 15;
+
+      setStats({
+        total: total || 0,
+        waiting: waiting || 0,
+        completed: completed || 0,
+        avgWait: (waiting || 0) * slotDuration
+      });
+
+      if (settings) {
+        setDoctorSettingsMap({ 'all': settings }); // Mocking map since we only have one settings row in SQL
       }
     } catch (e) {
       console.log('Error fetching admin stats:', e);
@@ -102,31 +103,31 @@ export default function AdminDashboard({ navigation }) {
     if (!settings || !settings.is_available) {
       return { label: 'Unavailable', style: styles.statusUnavailable, color: 'neutral.0' };
     }
-    
+
     // Check if within hours
     const now = new Date();
     const currTime = now.getHours() * 60 + now.getMinutes();
-    
+
     if (settings.start_time && settings.end_time) {
-       const startParts = settings.start_time.split(':');
-       const endParts = settings.end_time.split(':');
-       const startMins = parseInt(startParts[0]) * 60 + parseInt(startParts[1]);
-       const endMins = parseInt(endParts[0]) * 60 + parseInt(endParts[1]);
-       
-       if (currTime < startMins || currTime > endMins) {
-         return { label: 'Break/Off-hours', style: styles.statusBreak, color: 'neutral.0' };
-       }
+      const startParts = settings.start_time.split(':');
+      const endParts = settings.end_time.split(':');
+      const startMins = parseInt(startParts[0]) * 60 + parseInt(startParts[1]);
+      const endMins = parseInt(endParts[0]) * 60 + parseInt(endParts[1]);
+
+      if (currTime < startMins || currTime > endMins) {
+        return { label: 'Break/Off-hours', style: styles.statusBreak, color: 'neutral.0' };
+      }
     }
-    
+
     return { label: 'Available', style: styles.statusAvailable, color: 'neutral.0' };
   };
 
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <SkeletonLoader width={150} height={32} style={{margin: 16}} />
+        <SkeletonLoader width={150} height={32} style={{ margin: 16 }} />
         <View style={styles.grid}>
-          {[1,2,3,4].map(i => <SkeletonLoader key={i} width="46%" height={100} style={{marginBottom: 16}} />)}
+          {[1, 2, 3, 4].map(i => <SkeletonLoader key={i} width="46%" height={100} style={{ marginBottom: 16 }} />)}
         </View>
       </SafeAreaView>
     );
@@ -134,36 +135,36 @@ export default function AdminDashboard({ navigation }) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <LinearGradient 
-        colors={[theme.colors.primary[500], theme.colors.neutral[50], theme.colors.neutral[50]]} 
+      <LinearGradient
+        colors={[theme.colors.primary[500], theme.colors.neutral[50], theme.colors.neutral[50]]}
         style={StyleSheet.absoluteFillObject}
         start={{ x: 0, y: 0 }}
         end={{ x: 0, y: 0.5 }}
       />
-      <ScrollView contentContainerStyle={{padding: theme.spacing[4]}}>
-        
+      <ScrollView contentContainerStyle={{ padding: theme.spacing[4] }}>
+
         <View style={styles.header}>
           <Typography variant="h2" color="neutral.0">Admin Dashboard</Typography>
         </View>
 
         {/* Doctor Tabs */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsContainer} contentContainerStyle={{paddingRight: theme.spacing[4]}}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsContainer} contentContainerStyle={{ paddingRight: theme.spacing[4] }}>
           {doctors.map(doc => (
-            <TouchableOpacity 
+            <TouchableOpacity
               key={doc.id}
               style={[styles.tab, selectedDoctor === doc.id && styles.tabActive]}
               onPress={() => setSelectedDoctor(doc.id)}
             >
-              <Typography variant="bodyMd" color={selectedDoctor === doc.id ? 'neutral.0' : 'neutral.700'} style={{fontWeight: '600'}}>
+              <Typography variant="bodyMd" color={selectedDoctor === doc.id ? 'neutral.0' : 'neutral.700'} style={{ fontWeight: '600' }}>
                 {doc.name}
               </Typography>
             </TouchableOpacity>
           ))}
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.tab, selectedDoctor === 'all' && styles.tabActive]}
             onPress={() => setSelectedDoctor('all')}
           >
-            <Typography variant="bodyMd" color={selectedDoctor === 'all' ? 'neutral.0' : 'neutral.700'} style={{fontWeight: '600'}}>
+            <Typography variant="bodyMd" color={selectedDoctor === 'all' ? 'neutral.0' : 'neutral.700'} style={{ fontWeight: '600' }}>
               All Doctors
             </Typography>
           </TouchableOpacity>
@@ -171,16 +172,16 @@ export default function AdminDashboard({ navigation }) {
 
         {selectedDoctor !== 'all' && doctors.find(d => d.id === selectedDoctor) && (
           <View style={styles.profileCard}>
-            <View style={{flexDirection: 'row', zIndex: 1}}>
-              <View style={{flex: 1, paddingRight: 80}}>
+            <View style={{ flexDirection: 'row', zIndex: 1 }}>
+              <View style={{ flex: 1, paddingRight: 80 }}>
                 <View style={styles.profileHeader}>
                   <View style={styles.idBadge}>
-                    <Typography variant="caption" color="neutral.700" style={{fontWeight: '600'}}>
+                    <Typography variant="caption" color="neutral.700" style={{ fontWeight: '600' }}>
                       ID: {doctors.find(d => d.id === selectedDoctor).id.split('-')[1] || '0269784'}
                     </Typography>
                   </View>
                 </View>
-                
+
                 <Typography variant="h1" color="neutral.900" style={styles.doctorName}>
                   {doctors.find(d => d.id === selectedDoctor).name}
                 </Typography>
@@ -190,24 +191,24 @@ export default function AdminDashboard({ navigation }) {
 
                 <View style={styles.profileBadges}>
                   <View style={[
-                      styles.statusBadge, 
-                      getStatusDisplay(doctorSettingsMap[selectedDoctor]).style
+                    styles.statusBadge,
+                    getStatusDisplay(doctorSettingsMap['all']).style
                   ]}>
-                    <Typography variant="caption" color={getStatusDisplay(doctorSettingsMap[selectedDoctor]).color} style={{fontWeight: 'bold'}}>
-                      {getStatusDisplay(doctorSettingsMap[selectedDoctor]).label}
+                    <Typography variant="caption" color={getStatusDisplay(doctorSettingsMap['all']).color} style={{ fontWeight: 'bold' }}>
+                      {getStatusDisplay(doctorSettingsMap['all']).label}
                     </Typography>
                   </View>
                   <View style={styles.recordBadge}>
-                    <Users size={14} color={theme.colors.primary[600]} style={{marginRight: 6}} />
-                    <Typography variant="caption" color="neutral.900" style={{fontWeight: '700'}}>
+                    <Users size={14} color={theme.colors.primary[600]} style={{ marginRight: 6 }} />
+                    <Typography variant="caption" color="neutral.900" style={{ fontWeight: '700' }}>
                       120+
                     </Typography>
                   </View>
                 </View>
               </View>
             </View>
-            <Image 
-              source={selectedDoctor === 'doc-1' ? require('../../../assets/doc1.png') : require('../../../assets/doc2.png')}
+            <Image
+              source={require('../../../assets/onboarding/doctorprofile.png')}
               style={styles.doctorImage}
               resizeMode="contain"
             />
@@ -216,19 +217,19 @@ export default function AdminDashboard({ navigation }) {
 
         <View style={styles.grid}>
           <Card style={styles.statCard}>
-            <Typography variant="bodyMd" color="neutral.700" style={{marginBottom: 8}}>Total Patients</Typography>
+            <Typography variant="bodyMd" color="neutral.700" style={{ marginBottom: 8 }}>Total Patients</Typography>
             <Typography variant="h1" color="neutral.900">{stats.total}</Typography>
           </Card>
           <Card style={styles.statCard}>
-            <Typography variant="bodyMd" color="neutral.700" style={{marginBottom: 8}}>Currently Waiting</Typography>
+            <Typography variant="bodyMd" color="neutral.700" style={{ marginBottom: 8 }}>Currently Waiting</Typography>
             <Typography variant="h1" color="neutral.900">{stats.waiting}</Typography>
           </Card>
           <Card style={styles.statCard}>
-            <Typography variant="bodyMd" color="neutral.700" style={{marginBottom: 8}}>Completed</Typography>
+            <Typography variant="bodyMd" color="neutral.700" style={{ marginBottom: 8 }}>Completed</Typography>
             <Typography variant="h1" color="neutral.900">{stats.completed}</Typography>
           </Card>
           <Card style={styles.statCard}>
-            <Typography variant="bodyMd" color="neutral.700" style={{marginBottom: 8}}>Est. Wait Time</Typography>
+            <Typography variant="bodyMd" color="neutral.700" style={{ marginBottom: 8 }}>Est. Wait Time</Typography>
             <Typography variant="h1" color="neutral.900">{stats.avgWait}m</Typography>
           </Card>
         </View>
@@ -238,46 +239,48 @@ export default function AdminDashboard({ navigation }) {
           <View style={styles.listHeader}>
             <Typography variant="h3" color="neutral.900">Live Queue</Typography>
             <TouchableOpacity onPress={() => navigation.navigate('AdminAppointments')} style={styles.seeAllBtn}>
-              <Typography variant="bodyMd" color="neutral.700" style={{fontWeight: '500'}}>See All</Typography>
+              <Typography variant="bodyMd" color="neutral.700" style={{ fontWeight: '500' }}>See All</Typography>
             </TouchableOpacity>
           </View>
 
           {appointmentsPreview.map((appt, idx) => (
-            <View key={appt.id} style={[styles.listItem, idx === appointmentsPreview.length - 1 && {borderBottomWidth: 0}]}>
+            <View key={appt.id} style={[styles.listItem, idx === appointmentsPreview.length - 1 && { borderBottomWidth: 0 }]}>
               <View style={styles.listAvatar}>
-                <Typography variant="bodyLg" color="primary.600" style={{fontWeight: 'bold'}}>
-                  {appt.users?.name?.charAt(0) || 'P'}
+                <Typography variant="bodyLg" color="primary.600" style={{ fontWeight: 'bold' }}>
+                  {(appt.users?.name || appt.walk_ins?.name || 'P').charAt(0)}
                 </Typography>
               </View>
               <View style={styles.listInfo}>
-                <Typography variant="bodyLg" color="neutral.900" style={{fontWeight: '600'}}>{appt.users?.name || 'Walk-in'}</Typography>
-                <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 4}}>
-                  <StatusPill status={appt.status} style={{paddingVertical: 2, paddingHorizontal: 8}} />
+                <Typography variant="bodyLg" color="neutral.900" style={{ fontWeight: '600' }}>
+                  {appt.users?.name || appt.walk_ins?.name || 'Walk-in'}
+                </Typography>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                  <StatusPill status={appt.status} style={{ paddingVertical: 2, paddingHorizontal: 8 }} />
                   {selectedDoctor === 'all' && (
-                    <Typography variant="caption" color="neutral.500" style={{marginLeft: 6}}>
+                    <Typography variant="caption" color="neutral.500" style={{ marginLeft: 6 }}>
                       • {appt.doctors?.name}
                     </Typography>
                   )}
                 </View>
               </View>
               <View style={styles.listMetrics}>
-                <Typography variant="bodyLg" color="neutral.900" style={{fontWeight: '600', textAlign: 'right'}}>#{appt.queue_order}</Typography>
-                <Typography variant="caption" color="primary.500" style={{fontWeight: 'bold', textAlign: 'right'}}>
+                <Typography variant="bodyLg" color="neutral.900" style={{ fontWeight: '600', textAlign: 'right' }}>#{appt.queue_order}</Typography>
+                <Typography variant="caption" color="primary.500" style={{ fontWeight: 'bold', textAlign: 'right' }}>
                   {appt.time}
                 </Typography>
               </View>
             </View>
           ))}
-          
+
           {appointmentsPreview.length === 0 && (
-            <Typography variant="bodyMd" color="neutral.500" style={{textAlign: 'center', marginVertical: 24}}>
+            <Typography variant="bodyMd" color="neutral.500" style={{ textAlign: 'center', marginVertical: 24 }}>
               Queue is empty.
             </Typography>
           )}
         </Card>
 
         {/* Empty space at the bottom to allow scrolling past the floating nav */}
-        <View style={{height: 40}} />
+        <View style={{ height: 40 }} />
 
       </ScrollView>
 

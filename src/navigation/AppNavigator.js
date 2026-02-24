@@ -16,21 +16,36 @@ export default function AppNavigator() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session) fetchRole(session.user.id);
-      else setIsLoading(false);
-    });
+    const getSession = async () => {
+      const { data } = await supabase.auth.getSession()
+      setSession(data.session)
 
-    supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (session) fetchRole(session.user.id);
-      else {
-        setRole(null);
-        setIsLoading(false);
+      if (data.session) {
+        fetchRole(data.session.user.id)
+      } else {
+        setIsLoading(false)
       }
-    });
-  }, []);
+    }
+
+    getSession()
+
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setSession(session)
+
+        if (session) {
+          fetchRole(session.user.id)
+        } else {
+          setRole(null)
+          setIsLoading(false)
+        }
+      }
+    )
+
+    return () => {
+      listener.subscription.unsubscribe()
+    }
+  }, [])
 
   const fetchRole = async (userId) => {
     try {
@@ -39,7 +54,7 @@ export default function AppNavigator() {
         .select('role')
         .eq('id', userId)
         .single();
-      
+
       if (!error && data) {
         setRole(data.role);
       } else {

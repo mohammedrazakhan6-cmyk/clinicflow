@@ -9,30 +9,47 @@ import { ArrowLeft, Search, SlidersHorizontal, HeartPulse, Brain, ChevronRight, 
 const maleDoc = require('../../../assets/onboarding/maleDoc.png');
 const femaleDoc = require('../../../assets/onboarding/femaleDoc.png');
 
-const DOCTORS = [
-  {
-    id: '1',
-    name: 'Dr. Vivek S',
-    role: 'Cardiologist',
-    tags: 'Heart Health, Screening & treatment',
-    price: '₹1200',
-    icon: <HeartPulse size={16} color={theme.colors.primary[500]} />,
-    colorType: 'primary',
-    image: maleDoc,
-  },
-  {
-    id: '2',
-    name: 'Dr. Ramesh M',
-    role: 'Neurologist',
-    tags: 'Brain, Nerve & Spinal Disorders',
-    price: '₹1000',
-    icon: <Brain size={16} color={theme.colors.accent[500]} />,
-    colorType: 'neutral',
-    image: femaleDoc, // Using female for variability in fallback/demo
-  }
-];
+import { supabase } from '../../api/supabase';
 
 export default function DoctorList({ navigation }) {
+  const [doctors, setDoctors] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState(null);
+
+  React.useEffect(() => {
+    fetchDoctors();
+  }, []);
+
+  const fetchDoctors = async () => {
+    try {
+      setLoading(true);
+      const { data, error: fetchError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('role', 'doctor');
+
+      if (fetchError) throw fetchError;
+
+      // Transform data for UI
+      const transformedDoctors = (data || []).map((doc, index) => ({
+        id: doc.id,
+        name: doc.name,
+        role: 'General Physician', // Fallback as 'role' in users table might be just 'doctor'
+        tags: 'Health, Screening & treatment', // Static for now
+        price: '₹1000', // Static for now
+        icon: index % 2 === 0 ? <HeartPulse size={16} color={theme.colors.primary[500]} /> : <Brain size={16} color={theme.colors.accent[500]} />,
+        colorType: index % 2 === 0 ? 'primary' : 'neutral',
+        image: index % 2 === 0 ? maleDoc : femaleDoc,
+      }));
+
+      setDoctors(transformedDoctors);
+    } catch (e) {
+      console.error('Error fetching doctors:', e);
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
   const renderItem = ({ item }) => {
     const isPrimary = item.colorType === 'primary';
 
@@ -134,13 +151,27 @@ export default function DoctorList({ navigation }) {
         Find the right{'\n'}doctor for you
       </Typography>
 
-      <FlatList
-        data={DOCTORS}
-        keyExtractor={item => item.id}
-        renderItem={renderItem}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-      />
+      {loading ? (
+        <View style={{ flex: 1, paddingHorizontal: 24 }}>
+          <Typography variant="bodyMd">Loading doctors...</Typography>
+        </View>
+      ) : error ? (
+        <View style={{ flex: 1, paddingHorizontal: 24 }}>
+          <Typography variant="bodyMd" color="error.500">Error: {error}</Typography>
+        </View>
+      ) : doctors.length === 0 ? (
+        <View style={{ flex: 1, paddingHorizontal: 24 }}>
+          <Typography variant="bodyMd">No doctors found.</Typography>
+        </View>
+      ) : (
+        <FlatList
+          data={doctors}
+          keyExtractor={item => item.id}
+          renderItem={renderItem}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+        />
+      )}
     </SafeAreaView>
   );
 }

@@ -21,15 +21,22 @@ export default function Queue({ navigation }) {
     fetchQueueAndSettings();
 
     // Real-time subscription for queue updates
-    const sub = supabase
-      .channel('queue-realtime')
+    const channel = supabase
+      .channel('appointments')
       .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'appointments', filter: `date=eq.${today}` },
-        fetchQueueAndSettings
+        {
+          event: '*',
+          schema: 'public',
+          table: 'appointments',
+          filter: `date=eq.${today}`
+        },
+        () => fetchQueueAndSettings()
       )
       .subscribe();
 
-    return () => supabase.removeChannel(sub);
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const fetchQueueAndSettings = async () => {
@@ -44,8 +51,9 @@ export default function Queue({ navigation }) {
       const { data: qData } = await supabase
         .from('appointments')
         .select(`
-          id, queue_order, status, time, patient_id, token_number,
-          users (name)
+          id, queue_order, status, time, patient_id, walk_in_id, token_number,
+          users (name),
+          walk_ins (name)
         `)
         .eq('date', today)
         .in('status', ['waiting', 'in_consultation'])
@@ -151,7 +159,7 @@ export default function Queue({ navigation }) {
                   </View>
                   <View style={styles.queueInfo}>
                     <Typography variant="bodyLg" color={isMe ? 'primary.500' : 'neutral.900'} style={{ fontWeight: isMe ? 'bold' : '600' }}>
-                      {isMe ? 'You (Me)' : `Token #${appt.token_number || appt.queue_order}`}
+                      {isMe ? 'You (Me)' : appt.walk_ins ? `${appt.walk_ins.name} (Walk-in)` : `Token #${appt.token_number || appt.queue_order}`}
                     </Typography>
                     <Typography variant="caption" color="neutral.500">{appt.time}</Typography>
                   </View>

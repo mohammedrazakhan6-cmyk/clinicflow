@@ -13,8 +13,6 @@ export default function Register({ navigation }) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Manual role assignment for demo purposes
-  const [role, setRole] = useState('patient');
 
   const handleRegister = async () => {
     if (!name || !phone || !email || !password) {
@@ -22,13 +20,13 @@ export default function Register({ navigation }) {
       return;
     }
     setLoading(true);
-    
+
     // Create user in auth
-    const { data: authData, error: authError } = await supabase.auth.signUp({ 
-      email, 
-      password 
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email,
+      password
     });
-    
+
     if (authError) {
       setLoading(false);
       Alert.alert('Registration Failed', authError.message);
@@ -36,16 +34,16 @@ export default function Register({ navigation }) {
     }
 
     // Create user profile in public.users
-    if (authData.user) {
+    if (authData?.user) {
       const { error: profileError } = await supabase
         .from('users')
         .insert([
-          { 
+          {
             id: authData.user.id,
             name,
             phone,
             email,
-            role
+            role: 'patient'
           }
         ]);
 
@@ -53,11 +51,9 @@ export default function Register({ navigation }) {
         Alert.alert('Profile Creation Failed', profileError.message);
       } else {
         Alert.alert('Success', 'Registration successful! You can now log in.');
-        // Actually, Supabase auto-logs in if email confirmation is disabled,
-        // which it is by default on local/new projects without custom SMTP setup usually.
       }
     }
-    
+
     setLoading(false);
   };
 
@@ -66,7 +62,7 @@ export default function Register({ navigation }) {
       <Typography variant="h1" color="neutral.900" style={styles.title}>
         Create Account
       </Typography>
-      
+
       <Input
         label="Full Name"
         placeholder="Enter your name"
@@ -81,7 +77,7 @@ export default function Register({ navigation }) {
         onChangeText={setPhone}
         keyboardType="phone-pad"
       />
-      
+
       <Input
         label="Email"
         placeholder="Enter your email"
@@ -90,7 +86,7 @@ export default function Register({ navigation }) {
         autoCapitalize="none"
         keyboardType="email-address"
       />
-      
+
       <Input
         label="Password"
         placeholder="Create a password"
@@ -99,35 +95,18 @@ export default function Register({ navigation }) {
         secureTextEntry
       />
 
-      {/* Role Selector for Demo purposes only as per PRD */}
-      <View style={styles.roleContainer}>
-        <Typography variant="bodyMd" style={{marginBottom: 8}}>Role (Demo ONLY):</Typography>
-        <View style={styles.roleButtonGroup}>
-          {['patient', 'doctor', 'admin'].map((r) => (
-            <Button
-              key={r}
-              title={r.charAt(0).toUpperCase() + r.slice(1)}
-              variant={role === r ? 'primary' : 'secondary'}
-              onPress={() => setRole(r)}
-              style={styles.roleButton}
-              textStyle={{fontSize: 12}}
-            />
-          ))}
-        </View>
-      </View>
-      
-      <Button 
-        title="Register" 
+      <Button
+        title="Register"
         size="lg"
-        onPress={handleRegister} 
+        onPress={handleRegister}
         loading={loading}
         style={styles.button}
       />
-      
-      <Button 
-        title="Already have an account? Login" 
+
+      <Button
+        title="Already have an account? Login"
         variant="text"
-        onPress={() => navigation.navigate('Login')} 
+        onPress={() => navigation.navigate('Login')}
       />
     </ScrollView>
   );
