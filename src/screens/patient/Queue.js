@@ -6,6 +6,7 @@ import { SkeletonLoader } from '../../components/SkeletonLoader';
 import { theme } from '../../styles/theme';
 import { supabase } from '../../api/supabase';
 import { ArrowLeft } from 'lucide-react-native';
+import { StatusPill } from '../../components/StatusPill';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function Queue({ navigation }) {

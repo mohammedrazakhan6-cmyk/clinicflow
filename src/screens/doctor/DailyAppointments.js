@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { View, StyleSheet, FlatList, Alert, TouchableOpacity } from 'react-native';
 import { Typography } from '../../components/Typography';
 import { Card } from '../../components/Card';
@@ -7,20 +8,23 @@ import { SkeletonLoader } from '../../components/SkeletonLoader';
 import { theme } from '../../styles/theme';
 import { supabase } from '../../api/supabase';
 import { ArrowLeft } from 'lucide-react-native';
+import { StatusPill } from '../../components/StatusPill';
 
 export default function DailyAppointments({ navigation }) {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchDaily();
+  useFocusEffect(
+    useCallback(() => {
+      fetchDaily();
 
-    const sub = supabase.channel('public:appointments')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, fetchDaily)
-      .subscribe();
+      const sub = supabase.channel('public:appointments')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, fetchDaily)
+        .subscribe();
 
-    return () => supabase.removeChannel(sub);
-  }, []);
+      return () => supabase.removeChannel(sub);
+    }, [])
+  );
 
   const fetchDaily = async () => {
     try {
@@ -61,22 +65,13 @@ export default function DailyAppointments({ navigation }) {
     const isInConsultation = item.status === 'in_consultation';
     const isCompleted = item.status === 'completed';
 
-    const getStatusColor = () => {
-      if (isWaiting) return 'warning.500';
-      if (isInConsultation) return 'primary.500';
-      if (isCompleted) return 'success.500';
-      return 'neutral.700';
-    };
-
     return (
       <Card style={[styles.card, isInConsultation && styles.activeCard]}>
         <View style={styles.header}>
           <Typography variant="bodyLg" color="neutral.900" style={{fontWeight: 'bold'}}>
             {item.time} - {item.users?.name || 'Unknown Patient'}
           </Typography>
-          <Typography variant="caption" color={getStatusColor()} style={{fontWeight: 'bold', textTransform: 'capitalize'}}>
-            {item.status.replace('_', ' ')}
-          </Typography>
+          <StatusPill status={item.status} />
         </View>
 
         <Typography variant="bodyMd" color="neutral.700" style={{marginBottom: 12}}>
