@@ -23,10 +23,20 @@ export default function AdminAppointments({ navigation }) {
   const fetchAppointments = async () => {
     setLoading(true);
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const today = new Date().toLocaleDateString('en-CA');
       const { data } = await supabase
         .from('appointments')
-        .select(`id, patient_id, status, time, queue_order, users (name, phone)`)
+        // .select(`id, patient_id, status, time, queue_order, users!appointments_patient_id_fkey (name, phone)`)
+        .select(`
+  id, 
+  patient_id, 
+  walk_in_id,
+  status, 
+  time, 
+  queue_order, 
+  users!appointments_patient_id_fkey (name, phone),
+  walk_ins (name, phone)
+`)
         .eq('date', today)
         .order('time', { ascending: true });
 
@@ -106,10 +116,10 @@ export default function AdminAppointments({ navigation }) {
           <View style={styles.cardHeader}>
             <View>
               <Typography variant="h3" color="neutral.900" style={{ marginBottom: 4 }}>
-                {item.users?.name || 'Unknown Patient'}
+                {item.users?.name || item.walk_ins?.name || 'Unknown Patient'}
               </Typography>
               <Typography variant="bodyMd" color="neutral.500">
-                {item.users?.phone || 'No phone'}
+                {item.users?.phone || item.walk_ins?.phone || 'No phone'}
               </Typography>
             </View>
             <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>

@@ -316,9 +316,9 @@ export default function DoctorHome({ navigation }) {
           {/* Today's Appointment List Preview */}
           <View style={styles.sectionHeader}>
             <Typography variant="h3" color="neutral.900" style={styles.sectionTitle}>Today's Appointments</Typography>
-            <TouchableOpacity>
+            {/* <TouchableOpacity>
               <Typography variant="bodyMd" color="primary.500" style={{ fontWeight: '600' }}>View All</Typography>
-            </TouchableOpacity>
+            </TouchableOpacity> */}
           </View>
           {loading ? (
             [1, 2, 3].map(i => <SkeletonLoader key={i} width="100%" height={80} style={{ marginBottom: 16 }} />)

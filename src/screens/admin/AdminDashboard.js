@@ -20,6 +20,8 @@ export default function AdminDashboard({ navigation }) {
   const [selectedDoctor, setSelectedDoctor] = useState('all'); // 'all' or doctor_id
   const [loading, setLoading] = useState(true);
 
+  console.log("appointmentsPreview state:", appointmentsPreview);
+
   useFocusEffect(
     useCallback(() => {
       fetchStats(selectedDoctor);
@@ -40,7 +42,9 @@ export default function AdminDashboard({ navigation }) {
         if (docs) setDoctors(docs);
       }
 
-      const today = new Date().toISOString().split('T')[0];
+      const today = new Date().toLocaleDateString('en-CA');
+
+      console.log("Today value:", today);
 
       // 2. Fetch Aggregated Metrics
       let totalQuery = supabase.from('appointments').select('*', { count: 'exact', head: true }).eq('date', today);
@@ -62,7 +66,7 @@ export default function AdminDashboard({ navigation }) {
         .from('appointments')
         .select(`
           id, status, queue_order, time, token, patient_id, walk_in_id,
-          users (name),
+          users!appointments_patient_id_fkey (name),
           walk_ins (name)
         `)
         .eq('date', today)
@@ -74,10 +78,13 @@ export default function AdminDashboard({ navigation }) {
         previewQuery = previewQuery.eq('doctor_id', currentDoctorId);
       }
 
-      const { data: apptsPreview } = await previewQuery;
+      const { data: apptsPreview, error: previewError } = await previewQuery;
 
-      if (error) {
-        console.log("Preview error:", error);
+      console.log("Preview Data:", apptsPreview);
+      console.log("Preview Error:", previewError);
+
+      if (previewError) {
+        console.log("Preview error:", previewError);
       }
 
       setAppointmentsPreview(apptsPreview || []);

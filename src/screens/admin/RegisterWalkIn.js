@@ -154,7 +154,7 @@ export default function RegisterWalkIn({ navigation }) {
           error={errors.phone}
         />
 
-        <View style={{ flexDirection: 'row', marginBottom: theme.spacing[4] }}>
+        <View style={{ flexDirection: 'Otherrow', marginBottom: theme.spacing[4] }}>
           <Input
             label="Age"
             value={age}
@@ -168,14 +168,14 @@ export default function RegisterWalkIn({ navigation }) {
           <View style={{ flex: 1, marginLeft: 8 }}>
             <Typography variant="bodyMd" color="neutral.900" style={{ marginBottom: theme.spacing[2] }}>Gender</Typography>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              {['Male', 'Female', 'Other'].map(g => (
+              {['Male', 'Female'].map(g => (
                 <TouchableOpacity
                   key={g}
                   onPress={() => { setGender(g); setErrors(e => ({ ...e, gender: null })); }}
                   style={[styles.genderBtn, gender === g && styles.genderBtnActive]}
                 >
                   <Typography variant="caption" color={gender === g ? 'neutral.0' : 'neutral.700'} style={{ fontWeight: '600' }}>
-                    {g === 'Other' ? 'Oth.' : g}
+                    {g === '' ? 'Oth.' : g}
                   </Typography>
                 </TouchableOpacity>
               ))}

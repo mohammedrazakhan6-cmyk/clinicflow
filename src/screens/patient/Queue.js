@@ -15,7 +15,9 @@ export default function Queue({ navigation }) {
   const [currentUserAppt, setCurrentUserAppt] = useState(null);
   const [doctorSettings, setDoctorSettings] = useState(null);
 
-  const today = new Date().toISOString().split('T')[0];
+  // const today = new Date().toISOString().split('T')[0];
+
+  const today = new Date().toLocaleDateString('en-CA');
 
   useEffect(() => {
     fetchQueueAndSettings();
@@ -48,18 +50,23 @@ export default function Queue({ navigation }) {
       setDoctorSettings(settings || { slot_duration: 15 });
 
       // Fetch all waiting or in-consultation appointments for today
-      const { data: qData } = await supabase
+      const { data: qData, error } = await supabase
         .from('appointments')
         .select(`
-          id, queue_order, status, time, patient_id, walk_in_id, token_number,
-          users (name),
-          walk_ins (name)
-        `)
+    id, queue_order, status, time, patient_id, walk_in_id, token,
+    users!appointments_patient_id_fkey (name),
+    walk_ins (name)
+  `)
         .eq('date', today)
         .in('status', ['waiting', 'in_consultation'])
         .order('queue_order', { ascending: true });
 
+      console.log("Queue Data:", qData);
+      console.log("Queue Error:", error);
+
       setAppointments(qData || []);
+
+      console.log("Queue Data:", qData);
 
       const myAppt = qData?.find(a => a.patient_id === user.id);
       setCurrentUserAppt(myAppt || null);

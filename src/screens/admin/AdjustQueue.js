@@ -12,8 +12,11 @@ import { AdminBottomNav } from '../../components/AdminBottomNav';
 export default function AdjustQueue({ navigation }) {
   const [appointments, setAppointments] = useState([]);
   const [doctors, setDoctors] = useState([]);
-  const [selectedDoctor, setSelectedDoctor] = useState('doc-1');
+  const [selectedDoctor, setSelectedDoctor] = useState(null)
   const [loading, setLoading] = useState(true);
+
+
+  console.log("Selected Doctor:", selectedDoctor);
 
   useFocusEffect(
     useCallback(() => {
@@ -25,7 +28,7 @@ export default function AdjustQueue({ navigation }) {
     setLoading(true);
     try {
       if (doctors.length === 0) {
-        const { data: docs } = await supabase.from('doctors').select('*');
+        const { data: docs } = await supabase.from('users').select('*').eq('role', 'doctor');
         if (docs) {
           setDoctors(docs);
           if (!doctorId && docs.length > 0) {
@@ -37,20 +40,31 @@ export default function AdjustQueue({ navigation }) {
 
       if (!doctorId) return;
 
-      const today = new Date().toISOString().split('T')[0];
-      const { data } = await supabase
+
+      const today = new Date().toLocaleDateString('en-CA');
+      const { data, error } = await supabase
         .from('appointments')
-        .select(`id, queue_order, status, time, doctor_id, users (name)`)
+        .select(`
+          id, 
+          queue_order, 
+          status, 
+          time, 
+          doctor_id, 
+          patient_id,
+          walk_in_id,
+          users!appointments_patient_id_fkey (name),
+          walk_ins (name)
+        `)
         .eq('date', today)
+        .eq('doctor_id', doctorId) // Server-side filter
         .in('status', ['waiting', 'in_consultation'])
         .order('queue_order', { ascending: true });
-      
-      let queueData = data || [];
-      queueData = queueData.filter(a => a.doctor_id === doctorId);
 
-      setAppointments(queueData);
+      if (error) throw error;
+      setAppointments(data || []);
     } catch (e) {
-      console.log('Error fetching queue:', e);
+      console.error('Error fetching queue:', e);
+      Alert.alert('Error', 'Failed to fetch queue data');
     } finally {
       setLoading(false);
     }
@@ -61,34 +75,35 @@ export default function AdjustQueue({ navigation }) {
 
     Alert.alert('Confirm', 'Move this patient?', [
       { text: 'Cancel', style: 'cancel' },
-      { 
-        text: 'Confirm', 
+      {
+        text: 'Confirm',
         onPress: async () => {
           const appt1 = appointments[index1];
           const appt2 = appointments[index2];
 
-          // Optimistic UI update
-          const newArr = [...appointments];
-          newArr[index1] = { ...appt1, queue_order: appt2.queue_order };
-          newArr[index2] = { ...appt2, queue_order: appt1.queue_order };
-          newArr.sort((a, b) => a.queue_order - b.queue_order);
-          setAppointments(newArr);
+          try {
+            // Step 1: temporary value
+            await supabase
+              .from('appointments')
+              .update({ queue_order: -1 })
+              .eq('id', appt1.id);
 
-          // DB update
-          await supabase.rpc('swap_queue_order', {
-            id1: appt1.id,
-            order1: appt2.queue_order,
-            id2: appt2.id,
-            order2: appt1.queue_order
-          });
-          
-          // NOTE: Supabase might need an RPC for atomic swap, or we just do two sequential updates.
-          // Since RPC 'swap_queue_order' is not created, let's do two sequential updates.
-          await supabase.from('appointments').update({ queue_order: appt2.queue_order }).eq('id', appt1.id);
-          await supabase.from('appointments').update({ queue_order: appt1.queue_order }).eq('id', appt2.id);
-          
-          fetchQueue();
-        } 
+            // Step 2: swap
+            await supabase
+              .from('appointments')
+              .update({ queue_order: appt1.queue_order })
+              .eq('id', appt2.id);
+
+            await supabase
+              .from('appointments')
+              .update({ queue_order: appt2.queue_order })
+              .eq('id', appt1.id);
+
+            fetchQueue(selectedDoctor);
+          } catch (e) {
+            console.log("Swap error:", e);
+          }
+        }
       }
     ]);
   };
@@ -96,21 +111,22 @@ export default function AdjustQueue({ navigation }) {
   const renderItem = ({ item, index }) => (
     <Card style={styles.card}>
       <View style={styles.info}>
-        <Typography variant="bodyLg" color="neutral.900" style={{fontWeight: 'bold'}}>
-          #{item.queue_order} - {item.users?.name}
+        <Typography variant="bodyLg" color="neutral.900" style={{ fontWeight: 'bold' }}>
+          {/* #{item.queue_order} - {item.users?.name} */}
+          #{item.queue_order} - {item.users?.name || item.walk_ins?.name || 'Unknown'}
         </Typography>
         <Typography variant="caption" color="neutral.700">Time: {item.time}</Typography>
       </View>
       <View style={styles.controls}>
-        <TouchableOpacity 
-          style={styles.iconBtn} 
+        <TouchableOpacity
+          style={styles.iconBtn}
           onPress={() => swapOrder(index, index - 1)}
           disabled={index === 0}
         >
           <ArrowUp color={index === 0 ? theme.colors.neutral[100] : theme.colors.primary[500]} size={24} />
         </TouchableOpacity>
-        <TouchableOpacity 
-          style={styles.iconBtn} 
+        <TouchableOpacity
+          style={styles.iconBtn}
           onPress={() => swapOrder(index, index + 1)}
           disabled={index === appointments.length - 1}
         >
@@ -123,28 +139,28 @@ export default function AdjustQueue({ navigation }) {
   if (loading && appointments.length === 0) {
     return (
       <View style={styles.container}>
-        {[1,2,3].map(i => <SkeletonLoader key={i} width="100%" height={80} style={{marginBottom: 16}} />)}
+        {[1, 2, 3].map(i => <SkeletonLoader key={i} width="100%" height={80} style={{ marginBottom: 16 }} />)}
       </View>
     );
   }
 
   return (
-    <View style={[styles.container, {paddingTop: 60}]}>
-      <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing[4]}}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={{marginRight: 16}}>
+    <View style={[styles.container, { paddingTop: 60 }]}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing[4] }}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginRight: 16 }}>
           <ArrowLeft size={24} color={theme.colors.neutral[900]} />
         </TouchableOpacity>
         <Typography variant="h2" color="neutral.900">Adjust Queue</Typography>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsContainer} contentContainerStyle={{paddingRight: theme.spacing[4]}}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsContainer} contentContainerStyle={{ paddingRight: theme.spacing[4] }}>
         {doctors.map(doc => (
-          <TouchableOpacity 
+          <TouchableOpacity
             key={doc.id}
             style={[styles.tab, selectedDoctor === doc.id && styles.tabActive]}
             onPress={() => setSelectedDoctor(doc.id)}
           >
-            <Typography variant="bodyMd" color={selectedDoctor === doc.id ? 'neutral.0' : 'neutral.700'} style={{fontWeight: '600'}}>
+            <Typography variant="bodyMd" color={selectedDoctor === doc.id ? 'neutral.0' : 'neutral.700'} style={{ fontWeight: '600' }}>
               {doc.name}
             </Typography>
           </TouchableOpacity>
@@ -152,7 +168,7 @@ export default function AdjustQueue({ navigation }) {
       </ScrollView>
 
       {appointments.length === 0 && !loading && (
-        <Typography variant="bodyMd" color="neutral.500" style={{textAlign: 'center', marginTop: 40}}>
+        <Typography variant="bodyMd" color="neutral.500" style={{ textAlign: 'center', marginTop: 40 }}>
           No queue for this doctor.
         </Typography>
       )}
@@ -160,7 +176,7 @@ export default function AdjustQueue({ navigation }) {
         data={appointments}
         keyExtractor={item => item.id.toString()}
         renderItem={renderItem}
-        contentContainerStyle={{paddingBottom: 100}}
+        contentContainerStyle={{ paddingBottom: 100 }}
       />
       <AdminBottomNav navigation={navigation} activeRoute="AdjustQueue" />
     </View>
